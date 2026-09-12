@@ -1,0 +1,16 @@
+age,income,education,purchased
+25,40000,Bachelor,0
+32,55000,Master,1
+47,72000,Bachelor,1
+29,,PhD,0
+52,91000,Bachelor,1
+38,63000,Master,1
+,45000,Bachelor,0
+41,78000,PhD,1
+36,59000,Master,0
+28,42000,Bachelor,0
+55,102000,Master,1
+44,85000,PhD,1
+31,48000,Bachelor,0
+49,93000,Master,1
+27,37000,Bachelor,0
