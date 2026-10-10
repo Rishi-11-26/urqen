@@ -640,8 +640,8 @@ elif selected_step.startswith("9."):
             models_df = pd.DataFrame(res["models"])
             # Reorder columns: put sensitivity/specificity after standard metrics
             desired_order = [
-                "name", "accuracy", "f1", "roc_auc", "sensitivity", "specificity",
-                "r2", "mae", "rmse", "mse", "train_time_s", "status"
+                "model", "accuracy", "f1", "roc_auc", "sensitivity", "specificity",
+                "r2", "mae", "rmse", "mse", "train_time_s", "training_time_seconds", "status"
             ]
             display_cols = [c for c in desired_order if c in models_df.columns]
             remaining = [c for c in models_df.columns if c not in display_cols]
