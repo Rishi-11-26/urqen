@@ -302,8 +302,24 @@ def _make_rec(
     reason: str,
     evidence: str,
     confidence: str,
+    why_it_matters: str = "",
+    trade_offs: str = "",
 ) -> dict:
     """Return a recommendation dict with all required keys."""
+    if not why_it_matters:
+        why_it_matters = reason
+    if not trade_offs:
+        if "standard_scale" in recommendation:
+            trade_offs = "Standard scaling centers mean to 0 and variance to 1; makes coefficients comparable across features but alters original measurement units."
+        elif "one_hot_encode" in recommendation:
+            trade_offs = "One-hot encoding expands categorical levels into binary columns; increases dimensionality proportional to category count."
+        elif "drop" in recommendation:
+            trade_offs = "Excluding this column avoids memorization or zero-variance waste; ensures model focuses on generalizable signals."
+        elif "flag_for_review" in recommendation:
+            trade_offs = "High-cardinality requires deliberate grouping or target encoding to prevent extreme column explosion."
+        else:
+            trade_offs = "Imputation replaces missing values with robust statistics (median/mode) to allow complete matrix operations."
+
     return {
         "feature": feature,
         "detected_type": detected_type,
@@ -312,4 +328,6 @@ def _make_rec(
         "reason": reason,
         "evidence": evidence,
         "confidence": confidence,
+        "why_it_matters": why_it_matters,
+        "trade_offs": trade_offs,
     }

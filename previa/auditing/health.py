@@ -12,24 +12,17 @@ Design principles
   "potential issue", "review recommended", "possible identifier" — never
   "this column is broken".
 - Issues are generated from the profile dict (computed by profiler.py),
-  so no raw DataFrame access is needed here.
-- The output is a plain list of dicts, easy to display in Streamlit.
-
-Issue severity levels
----------------------
-  "high"   — strongly worth reviewing before modeling
-  "medium" — worth noting, may or may not matter
-  "low"    — informational
-
-Detected issue types
----------------------
-  - high_missing        : column has many missing values
-  - duplicate_rows      : dataset contains duplicate rows
-  - constant_column     : column has only one unique value (useless for ML)
-  - high_cardinality    : categorical column has very many unique values
-  - possible_identifier : column looks like a row ID (unique per row)
-  - high_skewness       : numeric column is strongly skewed
-  - potential_outliers  : numeric column may contain outliers (IQR method)
+  along with df for outlier calculation.
+- The output is an enriched 8-point finding structure for every issue:
+  1. issue_type
+  2. column
+  3. evidence
+  4. severity
+  5. message
+  6. why_it_matters
+  7. recommendation
+  8. trade_offs
+  9. requires_approval
 """
 
 import pandas as pd
@@ -64,11 +57,15 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
     Returns
     -------
     list of dicts, each with keys:
-        "column"      : str or None (None for dataset-level issues)
-        "issue_type"  : str
-        "severity"    : "high" | "medium" | "low"
-        "message"     : str  (user-readable explanation)
-        "evidence"    : str  (the specific statistic that triggered this)
+        "column"           : str or None (None for dataset-level issues)
+        "issue_type"       : str
+        "severity"         : "high" | "medium" | "low"
+        "message"          : str  (user-readable explanation)
+        "evidence"         : str  (the specific statistic that triggered this)
+        "why_it_matters"   : str  (practical ML impact)
+        "recommendation"   : str  (actionable advice)
+        "trade_offs"       : str  (potential downsides/trade-offs)
+        "requires_approval": bool (whether user should confirm)
     """
     issues = []
 
@@ -88,6 +85,10 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
                 f"({dup_pct}% of all rows). Duplicate rows can distort model training."
             ),
             "evidence": f"n_duplicates={summary['n_duplicates']}, duplicate_pct={dup_pct}%",
+            "why_it_matters": "Identical rows over-represent specific patterns and can cause evaluation metrics to appear artificially optimistic if duplicates land across train and test splits.",
+            "recommendation": "Review dataset provenance. If duplicates represent repeated recording errors, deduplicate before modeling.",
+            "trade_offs": "Deduplicating may discard genuine recurring business events if time or transaction context was omitted.",
+            "requires_approval": True,
         })
 
     # --- Per-column issues ---
@@ -110,6 +111,10 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
                     f"High missingness may reduce model reliability."
                 ),
                 "evidence": f"missing_pct={missing_pct}%",
+                "why_it_matters": "Estimating values for a heavily missing column may introduce synthetic noise or distort underlying feature relationships.",
+                "recommendation": "Consider dropping this feature or creating a missingness indicator column alongside imputation.",
+                "trade_offs": "Dropping loses partial signal; imputing heavily missing data risks artificial variance reduction.",
+                "requires_approval": True,
             })
         elif missing_pct >= MISSING_MEDIUM_THRESHOLD:
             issues.append({
@@ -121,6 +126,10 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
                     f"Review recommended."
                 ),
                 "evidence": f"missing_pct={missing_pct}%",
+                "why_it_matters": "Algorithms require complete data matrices; untreated missingness causes training errors.",
+                "recommendation": "Apply median imputation for skewed numeric features, mean for symmetric, or mode for categorical features.",
+                "trade_offs": "Standard imputation dampens natural feature variance slightly.",
+                "requires_approval": False,
             })
 
         # 2. Constant column (only one unique value — useless for ML)
@@ -135,14 +144,16 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
                     f"should be removed."
                 ),
                 "evidence": f"unique_count={unique_count}",
+                "why_it_matters": "Zero variance features provide zero discriminative power across samples and waste computational resources.",
+                "recommendation": "Exclude from feature set.",
+                "trade_offs": "No downside — removing constant columns is always safe for tabular modeling.",
+                "requires_approval": False,
             })
             continue  # No further checks needed for a constant column
 
         # 3. Possible identifier (unique per row, likely a row ID)
-        #    Only flag non-numeric columns or numeric columns that look like IDs
         is_numeric = _is_numeric_dtype(dtype)
         if unique_pct >= IDENTIFIER_PCT_THRESHOLD and n_rows > 5:
-            # Numeric columns with all-unique values could be IDs
             issues.append({
                 "column": col,
                 "issue_type": "possible_identifier",
@@ -153,10 +164,13 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
                     f"model training usually harms performance."
                 ),
                 "evidence": f"unique_pct={unique_pct}%",
+                "why_it_matters": "Unique identifiers allow complex models (like decision trees) to memorize training samples, causing severe overfitting and zero generalization.",
+                "recommendation": "Exclude this column from model features unless it represents a continuous regression target.",
+                "trade_offs": "Excluding an identifier prevents memorization; if the column actually has sequential temporal information, consider extracting trend features first.",
+                "requires_approval": True,
             })
 
         # 4. High-cardinality categorical column
-        #    Only relevant for non-numeric columns where OHE would explode
         elif not is_numeric and unique_count >= CARDINALITY_HIGH_THRESHOLD:
             issues.append({
                 "column": col,
@@ -168,6 +182,10 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
                     f"problems. Review recommended."
                 ),
                 "evidence": f"unique_count={unique_count}",
+                "why_it_matters": "One-hot encoding high-cardinality features creates a massive, sparse matrix that increases memory overhead and risk of overfitting.",
+                "recommendation": "Group rare categories into an 'Other' bucket, use target/frequency encoding, or evaluate feature exclusion.",
+                "trade_offs": "Grouping categories simplifies dimensionality but collapses fine-grained subgroup distinctions.",
+                "requires_approval": True,
             })
 
         # 5. High skewness (numeric only)
@@ -183,6 +201,10 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
                     f"(e.g. log) may be worth considering."
                 ),
                 "evidence": f"skewness={skewness:.4f}",
+                "why_it_matters": "Linear and distance-based models assume approximately symmetric distributions and can have coefficients distorted by long distribution tails.",
+                "recommendation": "Evaluate log1p or power transformation if using linear or ridge models. Tree models are invariant to monotonic transformations.",
+                "trade_offs": "Transformations make model coefficients harder to interpret directly in original units.",
+                "requires_approval": False,
             })
 
         # 6. Potential outliers using IQR method (numeric only)
@@ -211,14 +233,14 @@ def analyze_health(profile: dict, df: pd.DataFrame) -> list[dict]:
                                 f"IQR fence: [{lower:.2f}, {upper:.2f}], "
                                 f"n_outliers={n_outliers}"
                             ),
+                            "why_it_matters": "Extreme values disproportionately influence squared-error loss functions and linear model slopes.",
+                            "recommendation": "Use robust scaling (median/IQR) or tree-based models rather than blindly clipping observations.",
+                            "trade_offs": "Clipping or trimming valid rare observations can blind models to true extreme events.",
+                            "requires_approval": False,
                         })
 
     return issues
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 def _is_numeric_dtype(dtype_str: str) -> bool:
     """Return True if the dtype string corresponds to a numeric type."""

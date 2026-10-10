@@ -20,16 +20,13 @@ sklearn's Pipeline + ColumnTransformer make this automatic.
 How this module works
 ---------------------
 1. Read the recommendations list from the recommender.
-2. Sort features into three groups:
-   - numeric_features   : will get SimpleImputer(median) + StandardScaler
-   - categorical_features : will get SimpleImputer(most_frequent) + OneHotEncoder
-   - dropped_features   : constant/identifier/flag-for-review — excluded
-3. Build a ColumnTransformer that applies the right pipeline to each group.
-4. Return the ColumnTransformer (not yet fitted — fitting happens at training time).
-
-Important: this module does NOT split data or fit anything.
-It only constructs the pipeline object.
-Fitting is done by the benchmarker (on training data only).
+2. Allow user_overrides (accept/reject/modify actions per feature).
+3. Sort features into groups:
+   - numeric_features   : SimpleImputer(median) + optional StandardScaler
+   - categorical_features : SimpleImputer(most_frequent) + OneHotEncoder(ignore)
+   - dropped_features   : constant/identifier/flag-for-review/target — excluded
+4. Build a ColumnTransformer that applies the right pipeline to each group.
+5. Return the ColumnTransformer (not yet fitted — fitting happens at training time).
 """
 
 from sklearn.pipeline import Pipeline
@@ -42,7 +39,11 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 DROP_RECOMMENDATIONS = {"drop", "flag_for_review", "keep_as_is"}
 
 
-def build_pipeline(recommendations: list[dict]) -> tuple[ColumnTransformer, list[str], list[str], list[str]]:
+def build_pipeline(
+    recommendations: list[dict],
+    user_overrides: dict[str, str] | None = None,
+    scale_numeric: bool = True,
+) -> tuple[ColumnTransformer, list[str], list[str], list[str]]:
     """
     Build a ColumnTransformer preprocessing pipeline from recommendations.
 
@@ -50,22 +51,30 @@ def build_pipeline(recommendations: list[dict]) -> tuple[ColumnTransformer, list
     ----------
     recommendations : list[dict]
         Output of previa.preprocessing.recommender.generate_recommendations().
+    user_overrides : dict[str, str] or None
+        Optional mapping of feature_name -> action string to override
+        automatic recommendations (e.g., {"age": "drop"}, {"education": "one_hot_encode"}).
+    scale_numeric : bool
+        Whether to include StandardScaler in the numeric pipeline. Set to False
+        when training tree-based models that are scale-invariant.
 
     Returns
     -------
     tuple of:
-        pipeline         : sklearn ColumnTransformer (not yet fitted)
-        numeric_features : list of column names going through the numeric pipeline
+        pipeline             : sklearn ColumnTransformer (not yet fitted)
+        numeric_features     : list of column names going through the numeric pipeline
         categorical_features : list of column names going through the categorical pipeline
-        dropped_features : list of column names excluded from the pipeline
+        dropped_features     : list of column names excluded from the pipeline
     """
     numeric_features = []
     categorical_features = []
     dropped_features = []
+    overrides = user_overrides or {}
 
     for rec in recommendations:
         feature = rec["feature"]
-        recommendation = rec["recommendation"]
+        # Allow user override if provided
+        recommendation = overrides.get(feature, rec["recommendation"])
         detected_type = rec["detected_type"]
 
         # --- Decide which group this feature belongs to ---
@@ -73,7 +82,6 @@ def build_pipeline(recommendations: list[dict]) -> tuple[ColumnTransformer, list
             dropped_features.append(feature)
 
         elif detected_type in ("numeric", "boolean"):
-            # Boolean (0/1) is treated as numeric — it can be imputed and scaled
             numeric_features.append(feature)
 
         elif detected_type == "categorical":
@@ -85,29 +93,19 @@ def build_pipeline(recommendations: list[dict]) -> tuple[ColumnTransformer, list
 
     # --- Build individual sub-pipelines ---
 
-    # Numeric pipeline:
-    #   Step 1: SimpleImputer(strategy="median") — fills NaN with the median
-    #           (fitted on train data only → no leakage)
-    #   Step 2: StandardScaler() — centers to mean=0, scales to std=1
-    #           (parameters fitted on train data only → no leakage)
-    numeric_pipeline = Pipeline(steps=[
-        ("imputer", SimpleImputer(strategy="median")),
-        ("scaler", StandardScaler()),
-    ])
+    # Numeric pipeline
+    numeric_steps = [("imputer", SimpleImputer(strategy="median"))]
+    if scale_numeric:
+        numeric_steps.append(("scaler", StandardScaler()))
+    numeric_pipeline = Pipeline(steps=numeric_steps)
 
-    # Categorical pipeline:
-    #   Step 1: SimpleImputer(strategy="most_frequent") — fills NaN with mode
-    #   Step 2: OneHotEncoder(handle_unknown="ignore", sparse_output=False)
-    #           - handle_unknown="ignore" → unseen categories in test set become
-    #             all-zero rows (safe, does not crash)
-    #           - sparse_output=False → return a dense numpy array
+    # Categorical pipeline
     categorical_pipeline = Pipeline(steps=[
         ("imputer", SimpleImputer(strategy="most_frequent")),
         ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
     ])
 
     # --- Assemble with ColumnTransformer ---
-    # remainder="drop" means any column not explicitly listed is excluded.
     transformers = []
     if numeric_features:
         transformers.append(("numeric", numeric_pipeline, numeric_features))
@@ -123,7 +121,7 @@ def build_pipeline(recommendations: list[dict]) -> tuple[ColumnTransformer, list
 
     pipeline = ColumnTransformer(
         transformers=transformers,
-        remainder="drop",  # exclude columns not in any transformer
+        remainder="drop",
     )
 
     return pipeline, numeric_features, categorical_features, dropped_features
