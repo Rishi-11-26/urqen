@@ -7,7 +7,8 @@ We test:
 - Listing available classification models
 - Listing available regression models
 - Model metadata has name, family, scale_sensitive, description
-- Instantiating models by name
+- Instantiating core models (Logistic Regression, Random Forest)
+- Instantiating expanded models (Linear SVM/LVSM, Naive Bayes, RBF Network/RBFN)
 - Requesting invalid model name raises ValueError
 - Optional XGBoost presence check
 """
@@ -41,10 +42,30 @@ class TestModelRegistry:
         assert "Decision Tree" in names
         assert "Random Forest" in names
 
+    def test_get_expanded_models_includes_lvsm_nb_rbfn(self):
+        models = get_available_models("binary_classification", include_optional=True)
+        names = [m["name"] for m in models]
+        assert "Linear SVM (LVSM)" in names
+        assert "Naive Bayes" in names
+        assert "RBF Network (RBFN)" in names
+
     def test_instantiate_logistic_regression(self):
         model = create_model_instance("Logistic Regression", "binary_classification")
         assert hasattr(model, "fit")
         assert hasattr(model, "predict")
+
+    def test_instantiate_lvsm_naive_bayes_rbfn(self):
+        lvsm = create_model_instance("Linear SVM (LVSM)", "binary_classification")
+        assert hasattr(lvsm, "fit")
+        assert hasattr(lvsm, "predict")
+
+        nb = create_model_instance("Naive Bayes", "binary_classification")
+        assert hasattr(nb, "fit")
+        assert hasattr(nb, "predict")
+
+        rbfn = create_model_instance("RBF Network (RBFN)", "binary_classification")
+        assert hasattr(rbfn, "fit")
+        assert hasattr(rbfn, "predict")
 
     def test_instantiate_random_forest(self):
         model = create_model_instance("Random Forest", "regression")

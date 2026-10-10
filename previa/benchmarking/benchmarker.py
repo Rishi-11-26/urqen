@@ -12,11 +12,12 @@ The results are always described as:
   "Best among the evaluated baseline models according to the selected metric."
 
 Features:
-- Centralized model instantiation from Model Registry.
+- Centralized model instantiation from Model Registry (LVSM, Naive Bayes, RBFN, Random Forest, XGBoost).
+- Evaluation metrics include Accuracy, Precision, Recall, F1, ROC-AUC, Sensitivity, Specificity, MAE, MSE, RMSE, R2.
+- 10-fold cross-validation on datasets with >= 50 samples (adaptive for smaller datasets).
 - Execution time tracking per model (training_time_seconds).
 - Graceful failure handling (one model failure does not halt others).
-- Small-dataset adaptive cross-validation.
-- Support for primary metric selection and transparent winner rationale.
+- Transparent winner selection rationale.
 """
 
 import time
@@ -25,7 +26,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score, roc_auc_score,
-    mean_absolute_error, mean_squared_error, r2_score,
+    mean_absolute_error, mean_squared_error, r2_score, confusion_matrix,
 )
 
 from previa.models.registry import (
@@ -35,7 +36,7 @@ from previa.models.registry import (
 )
 
 
-CV_FOLDS_LARGE = 5     # n_samples >= 50
+CV_FOLDS_LARGE = 10    # n_samples >= 50: 10-fold CV
 CV_FOLDS_MEDIUM = 3    # n_samples >= 20
 CV_FOLDS_SMALL = 2     # n_samples >= 10
 
@@ -46,9 +47,11 @@ def run_benchmarks(
     task_type: str,
     primary_metric: str | None = None,
     include_optional: bool = False,
+    models_to_evaluate: list[str] | None = None,
+    cv_folds: int | None = None,
 ) -> dict:
     """
-    Train and evaluate baseline models on preprocessed data.
+    Train and evaluate models on preprocessed data.
 
     Parameters
     ----------
@@ -61,51 +64,54 @@ def run_benchmarks(
     primary_metric : str or None
         Metric used to rank models. Defaults to 'f1' for classification, 'r2' for regression.
     include_optional : bool
-        Whether to include optional algorithms (e.g. XGBoost) in addition to core baselines.
-        Defaults to False to guarantee identical evaluation baselines.
+        Whether to include expanded algorithms (LVSM, Naive Bayes, RBFN, XGBoost).
+        Defaults to False for standard baseline testing.
+    models_to_evaluate : list[str] or None
+        Explicit list of model names to benchmark. If provided, overrides include_optional.
+    cv_folds : int or None
+        Manual override for CV folds. If None, automatically determined based on sample size (10-fold for >=50).
 
     Returns
     -------
-    dict with keys:
-        "task_type"          : str
-        "n_samples"          : int
-        "n_features"         : int
-        "cv_folds"           : int
-        "cv_warning"         : str or None
-        "test_size"          : int
-        "models"             : list[dict]
-        "best_model"         : str
-        "primary_metric"     : str
-        "winner_explanation" : str
+    dict
     """
     y = np.array(y)
     n_samples = len(y)
 
     # --- 1. Determine CV fold count ---
-    cv_folds, cv_warning = _determine_cv_folds(n_samples, task_type)
+    if cv_folds is not None:
+        actual_cv_folds = cv_folds
+        cv_warning = None if cv_folds > 0 else "Cross-validation disabled."
+    else:
+        actual_cv_folds, cv_warning = _determine_cv_folds(n_samples, task_type)
 
     # --- 2. Train / test split ---
     test_size, X_train, X_test, y_train, y_test = _split_data(X, y, n_samples, task_type)
 
-    # --- 3. Model registry catalog ---
-    available_model_meta = get_available_models(task_type, include_optional=include_optional)
+    # --- 3. Determine models to evaluate ---
+    if models_to_evaluate:
+        models_meta = []
+        for name in models_to_evaluate:
+            models_meta.append({"name": name, "family": "custom"})
+    else:
+        models_meta = get_available_models(task_type, include_optional=include_optional)
 
     # --- 4. Evaluate each model ---
     results = []
-    for meta in available_model_meta:
+    for meta in models_meta:
         name = meta["name"]
         try:
             model = create_model_instance(name, task_type, random_state=RANDOM_STATE)
             res = _evaluate_model(
                 name, model, X_train, X_test, y_train, y_test,
-                task_type, cv_folds, X, y
+                task_type, actual_cv_folds, X, y
             )
-            res["family"] = meta["family"]
+            res["family"] = meta.get("family", "general")
             res["status"] = "success"
         except Exception as exc:
             res = {
                 "model": name,
-                "family": meta["family"],
+                "family": meta.get("family", "general"),
                 "status": "failed",
                 "error_message": str(exc),
                 "training_time_seconds": 0.0,
@@ -113,7 +119,10 @@ def run_benchmarks(
                 "cv_std": None,
             }
             if task_type in ("binary_classification", "multiclass_classification"):
-                res.update({"accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0, "roc_auc": None})
+                res.update({
+                    "accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0,
+                    "sensitivity": 0.0, "specificity": 0.0, "roc_auc": None,
+                })
             else:
                 res.update({"mae": float("inf"), "mse": float("inf"), "rmse": float("inf"), "r2": -float("inf")})
 
@@ -127,7 +136,7 @@ def run_benchmarks(
         "task_type": task_type,
         "n_samples": n_samples,
         "n_features": X.shape[1],
-        "cv_folds": cv_folds,
+        "cv_folds": actual_cv_folds,
         "cv_warning": cv_warning,
         "test_size": test_size,
         "models": results,
@@ -142,14 +151,14 @@ def run_benchmarks(
 # ---------------------------------------------------------------------------
 
 def _determine_cv_folds(n_samples: int, task_type: str) -> tuple[int, str | None]:
-    """Choose appropriate CV fold count based on sample size."""
+    """Choose appropriate CV fold count based on sample size (10-fold default)."""
     if n_samples >= 50:
         return CV_FOLDS_LARGE, None
 
     if n_samples >= 20:
         return CV_FOLDS_MEDIUM, (
             f"Dataset has {n_samples} samples. "
-            f"Using {CV_FOLDS_MEDIUM}-fold cross-validation instead of 5-fold "
+            f"Using {CV_FOLDS_MEDIUM}-fold cross-validation instead of 10-fold "
             f"to prevent overly small fold sizes."
         )
 
@@ -180,7 +189,6 @@ def _split_data(
 
     stratify = None
     if task_type in ("binary_classification", "multiclass_classification"):
-        # Check minimum class count for stratification
         unique_classes, counts = np.unique(y, return_counts=True)
         if len(counts) > 1 and counts.min() >= 2:
             stratify = y
@@ -190,7 +198,6 @@ def _split_data(
             X, y, test_size=test_ratio, random_state=RANDOM_STATE, stratify=stratify
         )
     except Exception:
-        # Fallback to unstratified if class counts fail constraint
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_ratio, random_state=RANDOM_STATE
         )
@@ -252,15 +259,38 @@ def _classification_metrics(
     X_test: np.ndarray,
     task_type: str,
 ) -> dict:
-    """Compute classification hold-out metrics."""
+    """Compute classification hold-out metrics including sensitivity and specificity."""
     is_binary = task_type == "binary_classification"
     average = "binary" if is_binary else "weighted"
+
+    # Sensitivity (Recall / TPR) and Specificity (TNR)
+    cm = confusion_matrix(y_test, y_pred)
+    if is_binary and cm.shape == (2, 2):
+        tn, fp, fn, tp = cm.ravel()
+        sensitivity = float(tp / (tp + fn)) if (tp + fn) > 0 else 0.0
+        specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
+    else:
+        # Multiclass macro average
+        n_classes = cm.shape[0]
+        sens_list = []
+        spec_list = []
+        for i in range(n_classes):
+            tp = cm[i, i]
+            fn = cm[i, :].sum() - tp
+            fp = cm[:, i].sum() - tp
+            tn = cm.sum() - (tp + fp + fn)
+            sens_list.append(tp / (tp + fn) if (tp + fn) > 0 else 0.0)
+            spec_list.append(tn / (tn + fp) if (tn + fp) > 0 else 0.0)
+        sensitivity = float(np.mean(sens_list)) if sens_list else 0.0
+        specificity = float(np.mean(spec_list)) if spec_list else 0.0
 
     metrics = {
         "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
         "precision": round(float(precision_score(y_test, y_pred, average=average, zero_division=0)), 4),
         "recall": round(float(recall_score(y_test, y_pred, average=average, zero_division=0)), 4),
         "f1": round(float(f1_score(y_test, y_pred, average=average, zero_division=0)), 4),
+        "sensitivity": round(sensitivity, 4),
+        "specificity": round(specificity, 4),
         "roc_auc": None,
     }
 
@@ -307,7 +337,6 @@ def _find_best_model(results: list[dict], metric: str, task_type: str) -> tuple[
     if not successful:
         return "None", "All models encountered training errors."
 
-    # Lower is better for error metrics (mae, mse, rmse)
     lower_is_better = metric in ("mae", "mse", "rmse")
 
     def _sort_key(r):

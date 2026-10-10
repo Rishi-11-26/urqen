@@ -527,12 +527,18 @@ elif selected_step.startswith("9."):
         task = st.session_state.selected_task or "binary_classification"
         pipe_res = st.session_state.pipeline_result
 
-        col_opt1, col_opt2 = st.columns(2)
-        with col_opt1:
-            include_xgb = st.checkbox("Include XGBoost (Gradient Boosted Trees)", value=is_xgboost_available())
-        with col_opt2:
-            metric_options = ["f1", "accuracy", "roc_auc"] if "classification" in task else ["r2", "mae", "rmse"]
-            primary_sel = st.selectbox("Primary Ranking Metric", metric_options, index=0)
+        # Optional model checkboxes (core models always included)
+        st.markdown("**Optional Models** *(core models always included)*")
+        cb_col1, cb_col2, cb_col3, cb_col4 = st.columns(4)
+        with cb_col1:
+            include_lvsm = st.checkbox("Linear SVM (LVSM)", value=False)
+        with cb_col2:
+            include_nb = st.checkbox("Naive Bayes", value=False)
+        with cb_col3:
+            include_rbfn = st.checkbox("RBF Network (RBFN)", value=False)
+        with cb_col4:
+            include_xgb = st.checkbox("XGBoost", value=is_xgboost_available())
+
 
         if st.button("🚀 Train & Benchmark Models", type="primary"):
             with st.spinner("Executing leakage-safe training and cross-validation..."):
@@ -557,10 +563,25 @@ elif selected_step.startswith("9."):
                     pipeline = pipe_res["pipeline"]
                     X_transformed = pipeline.fit_transform(X_clean)
 
+                    # Build models_to_evaluate list from user checkbox selections
+                    from previa.models.registry import get_available_models as _get_models
+                    core_names = [m["name"] for m in _get_models(task, include_optional=False)]
+                    optional_selected = []
+                    if include_lvsm:
+                        optional_selected.append("Linear SVM (LVSM)")
+                    if include_nb:
+                        nb_name = "Naive Bayes" if "classification" in task else "Bayesian Ridge"
+                        optional_selected.append(nb_name)
+                    if include_rbfn:
+                        optional_selected.append("RBF Network (RBFN)")
+                    if include_xgb:
+                        optional_selected.append("XGBoost")
+                    models_to_evaluate = core_names + optional_selected
+
                     bench_res = run_benchmarks(
                         X_transformed, y_encoded, task,
-                        primary_metric=primary_sel,
-                        include_optional=include_xgb,
+                        include_optional=bool(optional_selected),
+                        models_to_evaluate=models_to_evaluate,
                     )
                     st.session_state.benchmark_results = bench_res
 
@@ -614,10 +635,64 @@ elif selected_step.startswith("9."):
                 f"**CV Folds:** `{res['cv_folds']}`"
             )
 
+
             st.subheader("Model Performance Comparison")
-            st.dataframe(pd.DataFrame(res["models"]), use_container_width=True)
+            models_df = pd.DataFrame(res["models"])
+            # Reorder columns: put sensitivity/specificity after standard metrics
+            desired_order = [
+                "name", "accuracy", "f1", "roc_auc", "sensitivity", "specificity",
+                "r2", "mae", "rmse", "mse", "train_time_s", "status"
+            ]
+            display_cols = [c for c in desired_order if c in models_df.columns]
+            remaining = [c for c in models_df.columns if c not in display_cols]
+            models_df = models_df[display_cols + remaining]
+            st.dataframe(models_df, use_container_width=True)
 
             st.caption(f"🏆 Winner: **{res['best_model']}** — {res['winner_explanation']}")
+
+            # ------------------------------------------------------------------
+            # Confusion Matrix of the winning model (classification only)
+            # ------------------------------------------------------------------
+            if "classification" in res["task_type"] and st.session_state.eval_artifacts is not None:
+                art9 = st.session_state.eval_artifacts
+                X_tr9, X_te9 = art9["X_train"], art9["X_test"]
+                y_tr9, y_te9 = art9["y_train"], art9["y_test"]
+                st.subheader(f"🏆 Winner Confusion Matrix — {res['best_model']}")
+                try:
+                    from previa.models.registry import create_model_instance
+                    winner_model = create_model_instance(res["best_model"], res["task_type"], random_state=42)
+                    winner_model.fit(X_tr9, y_tr9)
+                    y_pred_winner = winner_model.predict(X_te9)
+                    fig_cm_winner = plot_confusion_matrix(y_te9, y_pred_winner)
+                    st.plotly_chart(fig_cm_winner, use_container_width=True)
+                except Exception as cm_err:
+                    st.warning(f"Could not render confusion matrix: {cm_err}")
+
+            # ------------------------------------------------------------------
+            # Download Preprocessed Dataset
+            # ------------------------------------------------------------------
+            if st.session_state.eval_artifacts is not None:
+                st.subheader("📥 Download Preprocessed Dataset")
+                art9 = st.session_state.eval_artifacts
+                X_transformed_dl = art9["X_transformed"]
+                y_clean_dl = art9["y_clean"]
+                pipeline_dl = art9["pipeline"]
+                try:
+                    feat_names = [name.split("__")[-1] for name in pipeline_dl.get_feature_names_out()]
+                except Exception:
+                    feat_names = [f"feature_{i}" for i in range(X_transformed_dl.shape[1])]
+                try:
+                    preprocessed_df = pd.DataFrame(X_transformed_dl, columns=feat_names)
+                    preprocessed_df["target"] = y_clean_dl.values
+                    csv_bytes = preprocessed_df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="📥 Download Preprocessed Dataset (CSV)",
+                        data=csv_bytes,
+                        file_name="previa_preprocessed.csv",
+                        mime="text/csv",
+                    )
+                except Exception as dl_err:
+                    st.warning(f"Could not prepare download: {dl_err}")
 
 
 # ==============================================================================

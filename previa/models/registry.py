@@ -3,23 +3,14 @@ previa/models/registry.py
 -------------------------
 Centralized Model Registry for Previa.
 
-Provides a unified catalog of baseline algorithms for tabular
-regression and classification tasks.
-
-Supported Models
-----------------
-Classification:
-  - Logistic Regression
-  - Decision Tree
-  - Random Forest
-  - XGBoost (optional, enabled if xgboost package is installed)
-
-Regression:
-  - Linear Regression
-  - Ridge
-  - Decision Tree
-  - Random Forest
-  - XGBoost (optional, enabled if xgboost package is installed)
+Provides a unified catalog of algorithms for tabular regression
+and classification tasks:
+- Linear SVM (LVSM)
+- Naive Bayes
+- RBF Network / RBF Kernel (RBFN)
+- Random Forest
+- XGBoost (optional)
+- Logistic Regression / Decision Tree / Linear Regression / Ridge
 
 Design Principles:
 - Fixed random state (42) for deterministic reproducibility.
@@ -28,9 +19,11 @@ Design Principles:
 - Clean factory functions so downstream training code doesn't hardcode model constructors.
 """
 
-from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge
+from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, BayesianRidge
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.svm import SVC, SVR
+from sklearn.naive_bayes import GaussianNB
 
 
 RANDOM_STATE = 42
@@ -57,8 +50,8 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
     task_type : str
         "binary_classification", "multiclass_classification", or "regression".
     include_optional : bool
-        Whether to include optional algorithms (e.g. XGBoost) in addition
-        to core baselines. Defaults to False to ensure consistent baseline suites.
+        Whether to include expanded algorithms (e.g. LVSM, Naive Bayes, RBFN, XGBoost)
+        in addition to standard baseline suites.
 
     Returns
     -------
@@ -67,7 +60,7 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
     is_classification = task_type in ("binary_classification", "multiclass_classification")
 
     if is_classification:
-        models = [
+        core_models = [
             {
                 "name": "Logistic Regression",
                 "family": "linear",
@@ -87,17 +80,41 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
                 "description": "Bagged ensemble of de-correlated decision trees. Robust to noise and variance; scale-invariant.",
             },
         ]
-        if include_optional and XGBOOST_AVAILABLE:
-            models.append({
+        if not include_optional:
+            return core_models
+
+        expanded = list(core_models)
+        expanded.extend([
+            {
+                "name": "Linear SVM (LVSM)",
+                "family": "svm",
+                "scale_sensitive": True,
+                "description": "Support Vector Machine with linear hyperplane margin. Effective in high-dimensional structured spaces.",
+            },
+            {
+                "name": "Naive Bayes",
+                "family": "probabilistic",
+                "scale_sensitive": False,
+                "description": "Gaussian Naive Bayes classifier based on Bayes' theorem with feature independence assumption. Extremely fast and lightweight.",
+            },
+            {
+                "name": "RBF Network (RBFN)",
+                "family": "kernel",
+                "scale_sensitive": True,
+                "description": "Radial Basis Function (RBF) kernel SVM. Projects features into infinite-dimensional Hilbert space for non-linear decision boundaries.",
+            },
+        ])
+        if XGBOOST_AVAILABLE:
+            expanded.append({
                 "name": "XGBoost",
                 "family": "boosting",
                 "scale_sensitive": False,
                 "description": "Gradient boosted decision tree ensemble with regularized loss. High predictive performance on structured tables.",
             })
-        return models
+        return expanded
 
     else:  # regression
-        models = [
+        core_models = [
             {
                 "name": "Linear Regression",
                 "family": "linear",
@@ -123,14 +140,38 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
                 "description": "Averaged ensemble of randomized regression trees. High stability and predictive strength.",
             },
         ]
-        if include_optional and XGBOOST_AVAILABLE:
-            models.append({
+        if not include_optional:
+            return core_models
+
+        expanded = list(core_models)
+        expanded.extend([
+            {
+                "name": "Linear SVM (LVSM)",
+                "family": "svm",
+                "scale_sensitive": True,
+                "description": "Support Vector Regressor with linear kernel. Optimizes epsilon-insensitive loss.",
+            },
+            {
+                "name": "Naive Bayes",
+                "family": "probabilistic",
+                "scale_sensitive": True,
+                "description": "Bayesian Ridge regression. Formulates regression with spherical Gaussian priors over parameters.",
+            },
+            {
+                "name": "RBF Network (RBFN)",
+                "family": "kernel",
+                "scale_sensitive": True,
+                "description": "Radial Basis Function (RBF) Support Vector Regressor. Fits nonlinear continuous manifolds.",
+            },
+        ])
+        if XGBOOST_AVAILABLE:
+            expanded.append({
                 "name": "XGBoost",
                 "family": "boosting",
                 "scale_sensitive": False,
                 "description": "Gradient boosted trees optimizing squared error. State-of-the-art tabular baseline.",
             })
-        return models
+        return expanded
 
 
 def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_STATE):
@@ -140,7 +181,7 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
     Parameters
     ----------
     name : str
-        Model name (e.g. 'Logistic Regression', 'Ridge', 'XGBoost').
+        Model name (e.g. 'Linear SVM (LVSM)', 'Naive Bayes', 'RBF Network (RBFN)', 'Random Forest', 'XGBoost').
     task_type : str
         "binary_classification", "multiclass_classification", or "regression".
     random_state : int
@@ -150,22 +191,24 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
     -------
     estimator
         Unfitted scikit-learn compatible estimator.
-
-    Raises
-    ------
-    ValueError
-        If model name is not recognized or optional dependency is missing.
     """
     is_classification = task_type in ("binary_classification", "multiclass_classification")
+    name_clean = name.strip()
 
     if is_classification:
-        if name == "Logistic Regression":
+        if name_clean == "Logistic Regression":
             return LogisticRegression(max_iter=1000, random_state=random_state)
-        elif name == "Decision Tree":
+        elif name_clean == "Decision Tree":
             return DecisionTreeClassifier(random_state=random_state)
-        elif name == "Random Forest":
+        elif name_clean == "Random Forest":
             return RandomForestClassifier(n_estimators=100, random_state=random_state)
-        elif name == "XGBoost":
+        elif name_clean in ("Linear SVM (LVSM)", "LVSM", "LSVM", "Linear SVM"):
+            return SVC(kernel="linear", probability=True, random_state=random_state)
+        elif name_clean in ("Naive Bayes", "GaussianNB"):
+            return GaussianNB()
+        elif name_clean in ("RBF Network (RBFN)", "RBFN", "RBF SVM", "RBF Network"):
+            return SVC(kernel="rbf", probability=True, random_state=random_state)
+        elif name_clean == "XGBoost":
             if not XGBOOST_AVAILABLE:
                 raise ValueError("XGBoost is requested but not installed in the current environment.")
             return xgb.XGBClassifier(
@@ -178,15 +221,21 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
             raise ValueError(f"Unknown classification model name: '{name}'")
 
     else:  # regression
-        if name == "Linear Regression":
+        if name_clean == "Linear Regression":
             return LinearRegression()
-        elif name == "Ridge":
+        elif name_clean == "Ridge":
             return Ridge(random_state=random_state)
-        elif name == "Decision Tree":
+        elif name_clean == "Decision Tree":
             return DecisionTreeRegressor(random_state=random_state)
-        elif name == "Random Forest":
+        elif name_clean == "Random Forest":
             return RandomForestRegressor(n_estimators=100, random_state=random_state)
-        elif name == "XGBoost":
+        elif name_clean in ("Linear SVM (LVSM)", "LVSM", "LSVM", "Linear SVM"):
+            return SVR(kernel="linear")
+        elif name_clean in ("Naive Bayes", "Bayesian Ridge", "GaussianNB"):
+            return BayesianRidge()
+        elif name_clean in ("RBF Network (RBFN)", "RBFN", "RBF SVM", "RBF Network"):
+            return SVR(kernel="rbf")
+        elif name_clean == "XGBoost":
             if not XGBOOST_AVAILABLE:
                 raise ValueError("XGBoost is requested but not installed in the current environment.")
             return xgb.XGBRegressor(

@@ -89,7 +89,7 @@ class TestBinaryClassification:
         X, y = _binary_data()
         result = run_benchmarks(X, y, "binary_classification")
         for m in result["models"]:
-            for key in ["accuracy", "precision", "recall", "f1"]:
+            for key in ["accuracy", "precision", "recall", "f1", "sensitivity", "specificity"]:
                 assert key in m, f"Missing metric '{key}' in model: {m['model']}"
 
     def test_metrics_in_valid_range(self):
@@ -98,6 +98,8 @@ class TestBinaryClassification:
         for m in result["models"]:
             assert 0.0 <= m["accuracy"] <= 1.0
             assert 0.0 <= m["f1"] <= 1.0
+            assert 0.0 <= m["sensitivity"] <= 1.0
+            assert 0.0 <= m["specificity"] <= 1.0
 
     def test_best_model_is_in_results(self):
         X, y = _binary_data()
@@ -113,7 +115,7 @@ class TestBinaryClassification:
     def test_cv_mean_computed_for_large_dataset(self):
         X, y = _binary_data(n=100)
         result = run_benchmarks(X, y, "binary_classification")
-        assert result["cv_folds"] == 5
+        assert result["cv_folds"] == 10
         for m in result["models"]:
             assert m["cv_mean"] is not None
 
