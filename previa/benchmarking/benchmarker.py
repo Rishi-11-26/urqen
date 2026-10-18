@@ -49,6 +49,8 @@ def run_benchmarks(
     include_optional: bool = False,
     models_to_evaluate: list[str] | None = None,
     cv_folds: int | None = None,
+    test_size: float | None = None,
+    model_hyperparams: dict[str, dict] | None = None,
 ) -> dict:
     """
     Train and evaluate models on preprocessed data.
@@ -70,6 +72,11 @@ def run_benchmarks(
         Explicit list of model names to benchmark. If provided, overrides include_optional.
     cv_folds : int or None
         Manual override for CV folds. If None, automatically determined based on sample size (10-fold for >=50).
+    test_size : float or None
+        Holdout test set fraction (e.g., 0.2 for 20%). If None, auto-determined based on sample size.
+    model_hyperparams : dict[str, dict] or None
+        Optional dictionary mapping model names to custom hyperparameter dictionaries
+        (e.g., {"XGBoost": {"n_estimators": 300, "max_depth": 6, "learning_rate": 0.05}}).
 
     Returns
     -------
@@ -77,6 +84,7 @@ def run_benchmarks(
     """
     y = np.array(y)
     n_samples = len(y)
+    hyperparams_map = model_hyperparams or {}
 
     # --- 1. Determine CV fold count ---
     if cv_folds is not None:
@@ -86,7 +94,7 @@ def run_benchmarks(
         actual_cv_folds, cv_warning = _determine_cv_folds(n_samples, task_type)
 
     # --- 2. Train / test split ---
-    test_size, X_train, X_test, y_train, y_test = _split_data(X, y, n_samples, task_type)
+    split_size, X_train, X_test, y_train, y_test = _split_data(X, y, n_samples, task_type, user_test_size=test_size)
 
     # --- 3. Determine models to evaluate ---
     if models_to_evaluate:
@@ -101,7 +109,8 @@ def run_benchmarks(
     for meta in models_meta:
         name = meta["name"]
         try:
-            model = create_model_instance(name, task_type, random_state=RANDOM_STATE)
+            m_kwargs = hyperparams_map.get(name, {})
+            model = create_model_instance(name, task_type, random_state=RANDOM_STATE, **m_kwargs)
             res = _evaluate_model(
                 name, model, X_train, X_test, y_train, y_test,
                 task_type, actual_cv_folds, X, y
@@ -180,12 +189,16 @@ def _split_data(
     y: np.ndarray,
     n_samples: int,
     task_type: str,
+    user_test_size: float | None = None,
 ) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Split data into train and test with stratification when appropriate."""
     if n_samples < 10:
         return n_samples, X, X, y, y
 
-    test_ratio = 0.30 if n_samples < 20 else 0.20
+    if user_test_size is not None and 0.05 <= user_test_size <= 0.5:
+        test_ratio = float(user_test_size)
+    else:
+        test_ratio = 0.30 if n_samples < 20 else 0.20
 
     stratify = None
     if task_type in ("binary_classification", "multiclass_classification"):

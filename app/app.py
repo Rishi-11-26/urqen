@@ -477,10 +477,29 @@ elif selected_step.startswith("8."):
                 st.session_state.feature_analysis, target_column=target
             )
 
+        # Scaler selection
+        scaler_choice = st.selectbox(
+            "Numeric Feature Scaler",
+            ["StandardScaler (Standard: zero mean, unit variance)",
+             "MinMaxScaler (Scale between 0 and 1)",
+             "RobustScaler (Robust to outliers using IQR)",
+             "None (No scaling)"],
+            index=0,
+            help="Choose how continuous numeric features will be transformed."
+        )
+        scaler_map = {
+            "StandardScaler (Standard: zero mean, unit variance)": "standard",
+            "MinMaxScaler (Scale between 0 and 1)": "minmax",
+            "RobustScaler (Robust to outliers using IQR)": "robust",
+            "None (No scaling)": "none",
+        }
+        chosen_scaler_type = scaler_map[scaler_choice]
+
         try:
             pipeline, num_feats, cat_feats, dropped_feats = build_pipeline(
                 st.session_state.recommendations,
                 user_overrides=st.session_state.user_overrides,
+                scaler_type=chosen_scaler_type,
             )
             st.session_state.pipeline_result = {
                 "pipeline": pipeline,
@@ -493,7 +512,8 @@ elif selected_step.startswith("8."):
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown("**Numeric Pipeline**")
-                st.caption("Median Imputation → StandardScaler")
+                scaler_label = scaler_choice.split()[0]
+                st.caption(f"Median Imputation → {scaler_label}")
                 st.write(num_feats if num_feats else "None")
             with col2:
                 st.markdown("**Categorical Pipeline**")
@@ -539,6 +559,67 @@ elif selected_step.startswith("9."):
         with cb_col4:
             include_xgb = st.checkbox("XGBoost", value=is_xgboost_available())
 
+        # Advanced Training & Hyperparameter Options
+        with st.expander("⚙️ Advanced Training & Hyperparameter Options", expanded=False):
+            st.markdown(
+                "Customize cross-validation folds, holdout test split ratio, and specific model hyperparameters. "
+                "Default values reflect standard competitive tabular baselines."
+            )
+            col_split1, col_split2 = st.columns(2)
+            with col_split1:
+                cv_folds_input = st.slider("Cross-Validation Folds", min_value=2, max_value=20, value=10, step=1,
+                                           help="Number of CV splits for model stability assessment. Default is 10.")
+            with col_split2:
+                test_split_pct = st.slider("Holdout Test Set Size (%)", min_value=10, max_value=40, value=20, step=5,
+                                           help="Fraction of data reserved for final validation. Default is 20%.")
+            test_size_val = test_split_pct / 100.0
+
+            st.markdown("---")
+            st.markdown("##### 🔧 Model Hyperparameters")
+            hp_c1, hp_c2 = st.columns(2)
+            with hp_c1:
+                st.caption("**XGBoost**")
+                xgb_n_est = st.slider("XGBoost: n_estimators", 50, 1000, 100, 50)
+                xgb_max_depth = st.slider("XGBoost: max_depth", 2, 15, 6, 1)
+                xgb_lr = st.slider("XGBoost: learning_rate (eta)", 0.01, 0.5, 0.1, 0.01)
+                xgb_mcw = st.slider("XGBoost: min_child_weight", 1.0, 10.0, 1.0, 0.5)
+
+                st.caption("**Random Forest**")
+                rf_n_est = st.slider("Random Forest: n_estimators", 50, 500, 100, 50)
+                rf_max_depth = st.selectbox("Random Forest: max_depth", [None, 5, 10, 15, 20], index=0)
+
+            with hp_c2:
+                st.caption("**Support Vector Machines (SVM / LVSM / RBFN)**")
+                svm_c = st.slider("SVM: Regularization Parameter (C)", 0.01, 50.0, 1.0, 0.5)
+
+                st.caption("**Decision Tree**")
+                dt_max_depth = st.selectbox("Decision Tree: max_depth", [None, 3, 5, 8, 12, 15], index=0)
+                dt_min_split = st.slider("Decision Tree: min_samples_split", 2, 20, 2, 1)
+
+                st.caption("**Linear / Logistic Regression**")
+                reg_c = st.slider("Regularization Strength (C / alpha)", 0.01, 20.0, 1.0, 0.1)
+
+        model_hyperparams = {
+            "XGBoost": {
+                "n_estimators": xgb_n_est,
+                "max_depth": xgb_max_depth,
+                "learning_rate": xgb_lr,
+                "min_child_weight": xgb_mcw,
+            },
+            "Random Forest": {
+                "n_estimators": rf_n_est,
+                "max_depth": rf_max_depth,
+            },
+            "Linear SVM (LVSM)": {"C": svm_c},
+            "RBF Network (RBFN)": {"C": svm_c},
+            "Decision Tree": {
+                "max_depth": dt_max_depth,
+                "min_samples_split": dt_min_split,
+            },
+            "Logistic Regression": {"C": reg_c},
+            "Ridge": {"alpha": reg_c},
+        }
+        st.session_state.model_hyperparams = model_hyperparams
 
         if st.button("🚀 Train & Benchmark Models", type="primary"):
             with st.spinner("Executing leakage-safe training and cross-validation..."):
@@ -582,10 +663,13 @@ elif selected_step.startswith("9."):
                         X_transformed, y_encoded, task,
                         include_optional=bool(optional_selected),
                         models_to_evaluate=models_to_evaluate,
+                        cv_folds=cv_folds_input,
+                        test_size=test_size_val,
+                        model_hyperparams=model_hyperparams,
                     )
                     st.session_state.benchmark_results = bench_res
 
-                    split_ratio = 0.3 if len(y_encoded) < 20 else 0.2
+                    split_ratio = test_size_val if len(y_encoded) >= 20 else 0.3
                     if len(y_encoded) >= 10:
                         X_tr, X_te, y_tr, y_te = train_test_split(
                             X_transformed, y_encoded, test_size=split_ratio, random_state=42
@@ -660,7 +744,8 @@ elif selected_step.startswith("9."):
                 st.subheader(f"🏆 Winner Confusion Matrix — {res['best_model']}")
                 try:
                     from previa.models.registry import create_model_instance
-                    winner_model = create_model_instance(res["best_model"], res["task_type"], random_state=42)
+                    winner_kwargs = st.session_state.get("model_hyperparams", {}).get(res["best_model"], {})
+                    winner_model = create_model_instance(res["best_model"], res["task_type"], random_state=42, **winner_kwargs)
                     winner_model.fit(X_tr9, y_tr9)
                     y_pred_winner = winner_model.predict(X_te9)
                     fig_cm_winner = plot_confusion_matrix(y_te9, y_pred_winner)
@@ -715,7 +800,8 @@ elif selected_step.startswith("10."):
 
         chosen_name = st.selectbox("Model", model_names)
         try:
-            chosen_model = create_model_instance(chosen_name, task, random_state=42)
+            chosen_kwargs = st.session_state.get("model_hyperparams", {}).get(chosen_name, {})
+            chosen_model = create_model_instance(chosen_name, task, random_state=42, **chosen_kwargs)
             chosen_model.fit(X_tr, y_tr)
             y_pred = chosen_model.predict(X_te)
 

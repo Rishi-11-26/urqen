@@ -32,7 +32,7 @@ How this module works
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, OneHotEncoder
 
 
 # These recommendation strings mean the feature should be excluded from the pipeline
@@ -45,6 +45,7 @@ def build_pipeline(
     recommendations: list[dict],
     user_overrides: dict[str, str] | None = None,
     scale_numeric: bool = True,
+    scaler_type: str = "standard",
 ) -> tuple[ColumnTransformer, list[str], list[str], list[str]]:
     """
     Build a ColumnTransformer preprocessing pipeline from recommendations.
@@ -57,8 +58,12 @@ def build_pipeline(
         Optional mapping of feature_name -> action string to override
         automatic recommendations (e.g., {"age": "drop"}, {"education": "one_hot_encode"}).
     scale_numeric : bool
-        Whether to include StandardScaler in the numeric pipeline. Set to False
+        Whether to include a scaler in the numeric pipeline. Set to False
         when training tree-based models that are scale-invariant.
+    scaler_type : str
+        Type of scaler to apply when scale_numeric is True:
+        "standard" (StandardScaler, default), "minmax" (MinMaxScaler),
+        "robust" (RobustScaler), or "none".
 
     Returns
     -------
@@ -97,8 +102,14 @@ def build_pipeline(
 
     # Numeric pipeline
     numeric_steps = [("imputer", SimpleImputer(strategy="median"))]
-    if scale_numeric:
-        numeric_steps.append(("scaler", StandardScaler()))
+    if scale_numeric and scaler_type and scaler_type.lower() != "none":
+        st_clean = scaler_type.lower().strip()
+        if st_clean == "minmax":
+            numeric_steps.append(("scaler", MinMaxScaler()))
+        elif st_clean == "robust":
+            numeric_steps.append(("scaler", RobustScaler()))
+        else:
+            numeric_steps.append(("scaler", StandardScaler()))
     numeric_pipeline = Pipeline(steps=numeric_steps)
 
     # Categorical pipeline

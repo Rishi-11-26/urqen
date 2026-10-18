@@ -174,9 +174,9 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
         return expanded
 
 
-def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_STATE):
+def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_STATE, **hyperparams):
     """
-    Instantiate an unfitted model object by name and task type.
+    Instantiate an unfitted model object by name and task type with optional hyperparameters.
 
     Parameters
     ----------
@@ -186,6 +186,9 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
         "binary_classification", "multiclass_classification", or "regression".
     random_state : int
         Seed for stochastic algorithms.
+    **hyperparams : dict
+        Optional keyword arguments to configure model hyperparameters
+        (e.g. n_estimators, max_depth, learning_rate, min_child_weight, C).
 
     Returns
     -------
@@ -197,22 +200,51 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
 
     if is_classification:
         if name_clean == "Logistic Regression":
-            return LogisticRegression(max_iter=1000, random_state=random_state)
+            c_val = float(hyperparams.get("C", 1.0))
+            max_iter = int(hyperparams.get("max_iter", 1000))
+            return LogisticRegression(C=c_val, max_iter=max_iter, random_state=random_state)
+
         elif name_clean == "Decision Tree":
-            return DecisionTreeClassifier(random_state=random_state)
+            max_depth = hyperparams.get("max_depth", None)
+            if max_depth is not None:
+                max_depth = int(max_depth)
+            min_split = int(hyperparams.get("min_samples_split", 2))
+            return DecisionTreeClassifier(max_depth=max_depth, min_samples_split=min_split, random_state=random_state)
+
         elif name_clean == "Random Forest":
-            return RandomForestClassifier(n_estimators=100, random_state=random_state)
+            n_est = int(hyperparams.get("n_estimators", 100))
+            max_depth = hyperparams.get("max_depth", None)
+            if max_depth is not None:
+                max_depth = int(max_depth)
+            return RandomForestClassifier(n_estimators=n_est, max_depth=max_depth, random_state=random_state)
+
         elif name_clean in ("Linear SVM (LVSM)", "LVSM", "LSVM", "Linear SVM"):
-            return SVC(kernel="linear", probability=True, random_state=random_state)
+            c_val = float(hyperparams.get("C", 1.0))
+            return SVC(C=c_val, kernel="linear", probability=True, random_state=random_state)
+
         elif name_clean in ("Naive Bayes", "GaussianNB"):
-            return GaussianNB()
+            var_sm = float(hyperparams.get("var_smoothing", 1e-9))
+            return GaussianNB(var_smoothing=var_sm)
+
         elif name_clean in ("RBF Network (RBFN)", "RBFN", "RBF SVM", "RBF Network"):
-            return SVC(kernel="rbf", probability=True, random_state=random_state)
+            c_val = float(hyperparams.get("C", 1.0))
+            gamma = hyperparams.get("gamma", "scale")
+            return SVC(C=c_val, kernel="rbf", gamma=gamma, probability=True, random_state=random_state)
+
         elif name_clean == "XGBoost":
             if not XGBOOST_AVAILABLE:
                 raise ValueError("XGBoost is requested but not installed in the current environment.")
+            n_est = int(hyperparams.get("n_estimators", 100))
+            max_d = int(hyperparams.get("max_depth", 6))
+            lr = float(hyperparams.get("learning_rate", hyperparams.get("eta", 0.1)))
+            mcw = float(hyperparams.get("min_child_weight", 1.0))
+            sub = float(hyperparams.get("subsample", 1.0))
             return xgb.XGBClassifier(
-                n_estimators=100,
+                n_estimators=n_est,
+                max_depth=max_d,
+                learning_rate=lr,
+                min_child_weight=mcw,
+                subsample=sub,
                 random_state=random_state,
                 eval_metric="logloss" if task_type == "binary_classification" else "mlogloss",
                 verbosity=0,
@@ -223,23 +255,51 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
     else:  # regression
         if name_clean == "Linear Regression":
             return LinearRegression()
+
         elif name_clean == "Ridge":
-            return Ridge(random_state=random_state)
+            alpha = float(hyperparams.get("alpha", 1.0))
+            return Ridge(alpha=alpha, random_state=random_state)
+
         elif name_clean == "Decision Tree":
-            return DecisionTreeRegressor(random_state=random_state)
+            max_depth = hyperparams.get("max_depth", None)
+            if max_depth is not None:
+                max_depth = int(max_depth)
+            min_split = int(hyperparams.get("min_samples_split", 2))
+            return DecisionTreeRegressor(max_depth=max_depth, min_samples_split=min_split, random_state=random_state)
+
         elif name_clean == "Random Forest":
-            return RandomForestRegressor(n_estimators=100, random_state=random_state)
+            n_est = int(hyperparams.get("n_estimators", 100))
+            max_depth = hyperparams.get("max_depth", None)
+            if max_depth is not None:
+                max_depth = int(max_depth)
+            return RandomForestRegressor(n_estimators=n_est, max_depth=max_depth, random_state=random_state)
+
         elif name_clean in ("Linear SVM (LVSM)", "LVSM", "LSVM", "Linear SVM"):
-            return SVR(kernel="linear")
+            c_val = float(hyperparams.get("C", 1.0))
+            return SVR(C=c_val, kernel="linear")
+
         elif name_clean in ("Naive Bayes", "Bayesian Ridge", "GaussianNB"):
             return BayesianRidge()
+
         elif name_clean in ("RBF Network (RBFN)", "RBFN", "RBF SVM", "RBF Network"):
-            return SVR(kernel="rbf")
+            c_val = float(hyperparams.get("C", 1.0))
+            gamma = hyperparams.get("gamma", "scale")
+            return SVR(C=c_val, kernel="rbf", gamma=gamma)
+
         elif name_clean == "XGBoost":
             if not XGBOOST_AVAILABLE:
                 raise ValueError("XGBoost is requested but not installed in the current environment.")
+            n_est = int(hyperparams.get("n_estimators", 100))
+            max_d = int(hyperparams.get("max_depth", 6))
+            lr = float(hyperparams.get("learning_rate", hyperparams.get("eta", 0.1)))
+            mcw = float(hyperparams.get("min_child_weight", 1.0))
+            sub = float(hyperparams.get("subsample", 1.0))
             return xgb.XGBRegressor(
-                n_estimators=100,
+                n_estimators=n_est,
+                max_depth=max_d,
+                learning_rate=lr,
+                min_child_weight=mcw,
+                subsample=sub,
                 random_state=random_state,
                 verbosity=0,
             )
