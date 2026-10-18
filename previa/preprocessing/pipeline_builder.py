@@ -36,7 +36,9 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 
 # These recommendation strings mean the feature should be excluded from the pipeline
-DROP_RECOMMENDATIONS = {"drop", "flag_for_review", "keep_as_is"}
+# NOTE: "flag_for_review" is NOT here — flagged features still get encoded (OHE),
+# so the model receives the signal. The UI warns the user, but training continues.
+DROP_RECOMMENDATIONS = {"drop", "keep_as_is"}
 
 
 def build_pipeline(

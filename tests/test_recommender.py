@@ -157,9 +157,9 @@ class TestCategoricalRecommendations:
         assert "most_frequent_imputation" in rec["recommendation"]
 
     def test_high_cardinality_categorical_gets_flag_for_review(self):
-        # 20 unique categories (above threshold of 15)
-        categories = [f"cat_{i}" for i in range(20)]
-        data = categories * 3  # 60 rows
+        # 55 unique categories (above threshold of 50)
+        categories = [f"cat_{i}" for i in range(55)]
+        data = (categories * 2)[:100]  # 100 rows
         df = pd.DataFrame({"high_card": data})
         recs = _recommend(df)
         rec = _rec_for(recs, "high_card")

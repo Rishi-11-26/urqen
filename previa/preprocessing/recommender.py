@@ -47,7 +47,7 @@ import pandas as pd
 
 HIGH_MISSING_THRESHOLD = 20.0          # % missing that triggers imputation note
 SKEWNESS_TRANSFORM_THRESHOLD = 2.0    # |skew| beyond which transform is suggested
-HIGH_CARDINALITY_THRESHOLD = 15       # unique categories beyond which OHE is risky
+HIGH_CARDINALITY_THRESHOLD = 50       # unique categories beyond which OHE is risky (raised from 15)
 
 
 def generate_recommendations(
