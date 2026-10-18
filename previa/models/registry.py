@@ -19,11 +19,20 @@ Design Principles:
 - Clean factory functions so downstream training code doesn't hardcode model constructors.
 """
 
-from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, BayesianRidge
+from sklearn.linear_model import (
+    LogisticRegression, LinearRegression, Ridge, Lasso, ElasticNet, BayesianRidge
+)
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import (
+    RandomForestClassifier, RandomForestRegressor,
+    ExtraTreesClassifier, ExtraTreesRegressor,
+    GradientBoostingClassifier, GradientBoostingRegressor,
+    AdaBoostClassifier, AdaBoostRegressor,
+)
 from sklearn.svm import SVC, SVR
 from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 
 
 RANDOM_STATE = 42
@@ -50,8 +59,8 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
     task_type : str
         "binary_classification", "multiclass_classification", or "regression".
     include_optional : bool
-        Whether to include expanded algorithms (e.g. LVSM, Naive Bayes, RBFN, XGBoost)
-        in addition to standard baseline suites.
+        Whether to include expanded algorithms (e.g. LVSM, Naive Bayes, RBFN, XGBoost,
+        Extra Trees, Gradient Boosting, AdaBoost, KNN, LDA, QDA, Lasso, ElasticNet).
 
     Returns
     -------
@@ -71,7 +80,7 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
                 "name": "Decision Tree",
                 "family": "tree",
                 "scale_sensitive": False,
-                "description": "Non-parametric tree partitioner. Captures nonlinear interactions; scale-invariant; prone to overfitting on small data.",
+                "description": "Non-parametric tree partitioner. Captures nonlinear interactions; scale-invariant.",
             },
             {
                 "name": "Random Forest",
@@ -86,6 +95,24 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
         expanded = list(core_models)
         expanded.extend([
             {
+                "name": "Extra Trees",
+                "family": "ensemble",
+                "scale_sensitive": False,
+                "description": "Extremely randomized trees ensemble. Randomizes cut-points for further variance reduction.",
+            },
+            {
+                "name": "Gradient Boosting",
+                "family": "boosting",
+                "scale_sensitive": False,
+                "description": "Sequential boosting ensemble optimizing deviance loss step-by-step.",
+            },
+            {
+                "name": "AdaBoost",
+                "family": "boosting",
+                "scale_sensitive": False,
+                "description": "Adaptive boosting focusing sequentially on misclassified instances.",
+            },
+            {
                 "name": "Linear SVM (LVSM)",
                 "family": "svm",
                 "scale_sensitive": True,
@@ -95,13 +122,31 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
                 "name": "Naive Bayes",
                 "family": "probabilistic",
                 "scale_sensitive": False,
-                "description": "Gaussian Naive Bayes classifier based on Bayes' theorem with feature independence assumption. Extremely fast and lightweight.",
+                "description": "Gaussian Naive Bayes classifier based on Bayes theorem with feature independence assumption.",
             },
             {
                 "name": "RBF Network (RBFN)",
                 "family": "kernel",
                 "scale_sensitive": True,
-                "description": "Radial Basis Function (RBF) kernel SVM. Projects features into infinite-dimensional Hilbert space for non-linear decision boundaries.",
+                "description": "Radial Basis Function (RBF) kernel SVM. Projects features into infinite-dimensional Hilbert space.",
+            },
+            {
+                "name": "K-Nearest Neighbors",
+                "family": "instance",
+                "scale_sensitive": True,
+                "description": "Non-parametric distance-weighted neighbor vote. Effective for localized clusters.",
+            },
+            {
+                "name": "Linear Discriminant Analysis",
+                "family": "discriminant",
+                "scale_sensitive": True,
+                "description": "Maximizes class separation ratio assuming shared normal covariance.",
+            },
+            {
+                "name": "Quadratic Discriminant Analysis",
+                "family": "discriminant",
+                "scale_sensitive": True,
+                "description": "Quadratic boundary classifier estimating distinct covariance matrices per class.",
             },
         ])
         if XGBOOST_AVAILABLE:
@@ -146,6 +191,30 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
         expanded = list(core_models)
         expanded.extend([
             {
+                "name": "Lasso",
+                "family": "linear",
+                "scale_sensitive": True,
+                "description": "L1-penalized linear regression that encourages sparse feature selection.",
+            },
+            {
+                "name": "ElasticNet",
+                "family": "linear",
+                "scale_sensitive": True,
+                "description": "Combines L1 (Lasso) and L2 (Ridge) penalties for balanced regularization.",
+            },
+            {
+                "name": "Extra Trees",
+                "family": "ensemble",
+                "scale_sensitive": False,
+                "description": "Extremely randomized regression trees ensemble.",
+            },
+            {
+                "name": "Gradient Boosting",
+                "family": "boosting",
+                "scale_sensitive": False,
+                "description": "Sequential boosting ensemble optimizing least squares loss.",
+            },
+            {
                 "name": "Linear SVM (LVSM)",
                 "family": "svm",
                 "scale_sensitive": True,
@@ -163,6 +232,12 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
                 "scale_sensitive": True,
                 "description": "Radial Basis Function (RBF) Support Vector Regressor. Fits nonlinear continuous manifolds.",
             },
+            {
+                "name": "K-Nearest Neighbors",
+                "family": "instance",
+                "scale_sensitive": True,
+                "description": "Distance-weighted average of neighboring target values.",
+            },
         ])
         if XGBOOST_AVAILABLE:
             expanded.append({
@@ -177,23 +252,6 @@ def get_available_models(task_type: str, include_optional: bool = False) -> list
 def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_STATE, **hyperparams):
     """
     Instantiate an unfitted model object by name and task type with optional hyperparameters.
-
-    Parameters
-    ----------
-    name : str
-        Model name (e.g. 'Linear SVM (LVSM)', 'Naive Bayes', 'RBF Network (RBFN)', 'Random Forest', 'XGBoost').
-    task_type : str
-        "binary_classification", "multiclass_classification", or "regression".
-    random_state : int
-        Seed for stochastic algorithms.
-    **hyperparams : dict
-        Optional keyword arguments to configure model hyperparameters
-        (e.g. n_estimators, max_depth, learning_rate, min_child_weight, C).
-
-    Returns
-    -------
-    estimator
-        Unfitted scikit-learn compatible estimator.
     """
     is_classification = task_type in ("binary_classification", "multiclass_classification")
     name_clean = name.strip()
@@ -218,6 +276,24 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
                 max_depth = int(max_depth)
             return RandomForestClassifier(n_estimators=n_est, max_depth=max_depth, random_state=random_state)
 
+        elif name_clean == "Extra Trees":
+            n_est = int(hyperparams.get("n_estimators", 100))
+            max_depth = hyperparams.get("max_depth", None)
+            if max_depth is not None:
+                max_depth = int(max_depth)
+            return ExtraTreesClassifier(n_estimators=n_est, max_depth=max_depth, random_state=random_state)
+
+        elif name_clean == "Gradient Boosting":
+            n_est = int(hyperparams.get("n_estimators", 100))
+            lr = float(hyperparams.get("learning_rate", 0.1))
+            max_d = int(hyperparams.get("max_depth", 3))
+            return GradientBoostingClassifier(n_estimators=n_est, learning_rate=lr, max_depth=max_d, random_state=random_state)
+
+        elif name_clean == "AdaBoost":
+            n_est = int(hyperparams.get("n_estimators", 50))
+            lr = float(hyperparams.get("learning_rate", 1.0))
+            return AdaBoostClassifier(n_estimators=n_est, learning_rate=lr, random_state=random_state)
+
         elif name_clean in ("Linear SVM (LVSM)", "LVSM", "LSVM", "Linear SVM"):
             c_val = float(hyperparams.get("C", 1.0))
             return SVC(C=c_val, kernel="linear", probability=True, random_state=random_state)
@@ -230,6 +306,16 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
             c_val = float(hyperparams.get("C", 1.0))
             gamma = hyperparams.get("gamma", "scale")
             return SVC(C=c_val, kernel="rbf", gamma=gamma, probability=True, random_state=random_state)
+
+        elif name_clean in ("K-Nearest Neighbors", "KNN"):
+            n_neighbors = int(hyperparams.get("n_neighbors", 5))
+            return KNeighborsClassifier(n_neighbors=n_neighbors)
+
+        elif name_clean in ("Linear Discriminant Analysis", "LDA"):
+            return LinearDiscriminantAnalysis()
+
+        elif name_clean in ("Quadratic Discriminant Analysis", "QDA"):
+            return QuadraticDiscriminantAnalysis()
 
         elif name_clean == "XGBoost":
             if not XGBOOST_AVAILABLE:
@@ -260,6 +346,15 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
             alpha = float(hyperparams.get("alpha", 1.0))
             return Ridge(alpha=alpha, random_state=random_state)
 
+        elif name_clean == "Lasso":
+            alpha = float(hyperparams.get("alpha", 1.0))
+            return Lasso(alpha=alpha, random_state=random_state)
+
+        elif name_clean == "ElasticNet":
+            alpha = float(hyperparams.get("alpha", 1.0))
+            l1_ratio = float(hyperparams.get("l1_ratio", 0.5))
+            return ElasticNet(alpha=alpha, l1_ratio=l1_ratio, random_state=random_state)
+
         elif name_clean == "Decision Tree":
             max_depth = hyperparams.get("max_depth", None)
             if max_depth is not None:
@@ -274,6 +369,19 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
                 max_depth = int(max_depth)
             return RandomForestRegressor(n_estimators=n_est, max_depth=max_depth, random_state=random_state)
 
+        elif name_clean == "Extra Trees":
+            n_est = int(hyperparams.get("n_estimators", 100))
+            max_depth = hyperparams.get("max_depth", None)
+            if max_depth is not None:
+                max_depth = int(max_depth)
+            return ExtraTreesRegressor(n_estimators=n_est, max_depth=max_depth, random_state=random_state)
+
+        elif name_clean == "Gradient Boosting":
+            n_est = int(hyperparams.get("n_estimators", 100))
+            lr = float(hyperparams.get("learning_rate", 0.1))
+            max_d = int(hyperparams.get("max_depth", 3))
+            return GradientBoostingRegressor(n_estimators=n_est, learning_rate=lr, max_depth=max_d, random_state=random_state)
+
         elif name_clean in ("Linear SVM (LVSM)", "LVSM", "LSVM", "Linear SVM"):
             c_val = float(hyperparams.get("C", 1.0))
             return SVR(C=c_val, kernel="linear")
@@ -285,6 +393,10 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
             c_val = float(hyperparams.get("C", 1.0))
             gamma = hyperparams.get("gamma", "scale")
             return SVR(C=c_val, kernel="rbf", gamma=gamma)
+
+        elif name_clean in ("K-Nearest Neighbors", "KNN"):
+            n_neighbors = int(hyperparams.get("n_neighbors", 5))
+            return KNeighborsRegressor(n_neighbors=n_neighbors)
 
         elif name_clean == "XGBoost":
             if not XGBOOST_AVAILABLE:

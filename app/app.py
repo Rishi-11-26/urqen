@@ -71,14 +71,14 @@ from previa.export.exporter import export_dataframe
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="Previa — Data Intelligence Workbench",
+    page_title="Previa — Tabular ML & Data Intelligence Workbench",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("🛡️ Previa")
-st.caption("Trustworthy Pre-Model Data Intelligence Workbench — *Understand the data before trusting the model.*")
+st.title("🛡️ Previa — Tabular ML Experimentation Platform")
+st.caption("Trustworthy Pre-Model Data Intelligence & Decision Support — *Understand the data before trusting the model.*")
 
 
 def get_sample_path():
@@ -87,8 +87,9 @@ def get_sample_path():
     return str(sample) if sample.exists() else None
 
 
-# --- Sidebar Navigation ---
-st.sidebar.header("Workflow Steps")
+# --- Tabular Workflow Steps Navigation ---
+st.sidebar.markdown("---")
+st.sidebar.header("Tabular Workflow Steps")
 steps = [
     "1. Ingestion & Validation",
     "2. Automated Profiler",
@@ -103,7 +104,7 @@ steps = [
     "11. Explainability & SHAP",
     "12. Manifest, Report & Prediction",
 ]
-selected_step = st.sidebar.radio("Navigate", steps)
+selected_step = st.sidebar.radio("Navigate Steps", steps)
 
 # --- Session State Initialization ---
 if "raw_df" not in st.session_state:
@@ -547,17 +548,31 @@ elif selected_step.startswith("9."):
         task = st.session_state.selected_task or "binary_classification"
         pipe_res = st.session_state.pipeline_result
 
-        # Optional model checkboxes (core models always included)
-        st.markdown("**Optional Models** *(core models always included)*")
-        cb_col1, cb_col2, cb_col3, cb_col4 = st.columns(4)
-        with cb_col1:
-            include_lvsm = st.checkbox("Linear SVM (LVSM)", value=False)
-        with cb_col2:
-            include_nb = st.checkbox("Naive Bayes", value=False)
-        with cb_col3:
-            include_rbfn = st.checkbox("RBF Network (RBFN)", value=False)
-        with cb_col4:
-            include_xgb = st.checkbox("XGBoost", value=is_xgboost_available())
+        # Comprehensive Model Selector
+        st.markdown("**Algorithm Selection**")
+        from previa.models.registry import get_available_models as _get_models
+        all_catalog = _get_models(task, include_optional=True)
+        all_catalog_names = [m["name"] for m in all_catalog]
+        core_default_names = [m["name"] for m in _get_models(task, include_optional=False)]
+        if is_xgboost_available() and "XGBoost" in all_catalog_names and "XGBoost" not in core_default_names:
+            core_default_names.append("XGBoost")
+
+        select_all_models = st.checkbox(
+            "⚡ Benchmark All Available Models (Comprehensive Suite)",
+            value=False,
+            help="Check to evaluate the entire algorithm catalog against your dataset."
+        )
+
+        default_choices = all_catalog_names if select_all_models else core_default_names
+
+        selected_model_names = st.multiselect(
+            "Select Algorithms to Train & Benchmark",
+            options=all_catalog_names,
+            default=default_choices,
+            help="Choose any combination of algorithms from the catalog to evaluate."
+        )
+        if not selected_model_names:
+            selected_model_names = core_default_names
 
         # Advanced Training & Hyperparameter Options
         with st.expander("⚙️ Advanced Training & Hyperparameter Options", expanded=False):
@@ -644,24 +659,11 @@ elif selected_step.startswith("9."):
                     pipeline = pipe_res["pipeline"]
                     X_transformed = pipeline.fit_transform(X_clean)
 
-                    # Build models_to_evaluate list from user checkbox selections
-                    from previa.models.registry import get_available_models as _get_models
-                    core_names = [m["name"] for m in _get_models(task, include_optional=False)]
-                    optional_selected = []
-                    if include_lvsm:
-                        optional_selected.append("Linear SVM (LVSM)")
-                    if include_nb:
-                        nb_name = "Naive Bayes" if "classification" in task else "Bayesian Ridge"
-                        optional_selected.append(nb_name)
-                    if include_rbfn:
-                        optional_selected.append("RBF Network (RBFN)")
-                    if include_xgb:
-                        optional_selected.append("XGBoost")
-                    models_to_evaluate = core_names + optional_selected
+                    models_to_evaluate = selected_model_names
 
                     bench_res = run_benchmarks(
                         X_transformed, y_encoded, task,
-                        include_optional=bool(optional_selected),
+                        include_optional=True,
                         models_to_evaluate=models_to_evaluate,
                         cv_folds=cv_folds_input,
                         test_size=test_size_val,

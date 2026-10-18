@@ -76,5 +76,16 @@ class TestModelRegistry:
         with pytest.raises(ValueError, match="Unknown"):
             create_model_instance("NonexistentNeuralNetwork", "regression")
 
+    def test_instantiate_additional_models(self):
+        for name in ["Extra Trees", "Gradient Boosting", "AdaBoost", "K-Nearest Neighbors", "Linear Discriminant Analysis", "Quadratic Discriminant Analysis"]:
+            m = create_model_instance(name, "binary_classification")
+            assert hasattr(m, "fit")
+            assert hasattr(m, "predict")
+
+        for name in ["Lasso", "ElasticNet", "Extra Trees", "Gradient Boosting", "K-Nearest Neighbors"]:
+            m = create_model_instance(name, "regression")
+            assert hasattr(m, "fit")
+            assert hasattr(m, "predict")
+
     def test_xgboost_flag_boolean(self):
         assert isinstance(is_xgboost_available(), bool)
