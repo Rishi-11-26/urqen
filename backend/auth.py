@@ -29,6 +29,15 @@ class UserIdentity(BaseModel):
     role: str = "authenticated"
 
 
+def _supabase_project_url(supabase_url: str) -> str:
+    """Removes Supabase API path suffixes so endpoints can be built consistently."""
+    project_url = supabase_url.rstrip("/")
+    for suffix in ("/auth/v1", "/rest/v1"):
+        if project_url.lower().endswith(suffix):
+            return project_url[:-len(suffix)]
+    return project_url
+
+
 def _decode_jwt_payload_unverified(token: str) -> dict:
     """Decodes JWT payload without cryptographic verification."""
     parts = token.split(".")
@@ -43,7 +52,7 @@ def _decode_jwt_payload_unverified(token: str) -> dict:
 @lru_cache(maxsize=8)
 def _get_jwks_client(supabase_url: str, supabase_key: str) -> PyJWKClient:
     return PyJWKClient(
-        f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json",
+        f"{_supabase_project_url(supabase_url)}/auth/v1/.well-known/jwks.json",
         headers={"apikey": supabase_key} if supabase_key else None,
     )
 

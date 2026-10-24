@@ -60,12 +60,20 @@ def test_jwks_client_sends_supabase_api_key(monkeypatch):
     monkeypatch.setattr(auth, "PyJWKClient", fake_client)
     auth._get_jwks_client.cache_clear()
 
-    auth._get_jwks_client("https://project.supabase.co", "test-supabase-api-key")
+    for url in (
+        "https://project.supabase.co",
+        "https://project.supabase.co/",
+        "https://project.supabase.co/auth/v1",
+        "https://project.supabase.co/rest/v1/",
+    ):
+        auth._get_jwks_client.cache_clear()
+        auth._get_jwks_client(url, "test-supabase-api-key")
 
-    assert client_arguments["url"] == (
-        "https://project.supabase.co/auth/v1/.well-known/jwks.json"
-    )
-    assert client_arguments["headers"] == {"apikey": "test-supabase-api-key"}
+        assert client_arguments["url"] == (
+            "https://project.supabase.co/auth/v1/.well-known/jwks.json"
+        )
+        assert client_arguments["headers"] == {"apikey": "test-supabase-api-key"}
+
     auth._get_jwks_client.cache_clear()
 
 
