@@ -86,14 +86,26 @@ BINARY_VALUE_SETS = [
 # Public API
 # ---------------------------------------------------------------------------
 
-def detect_target_and_task(df: pd.DataFrame) -> dict:
+def classify_task_for_target(series: pd.Series, n_rows: int | None = None) -> tuple[str, list[str]]:
+    """
+    Public function to determine the task type ('regression', 'binary_classification',
+    'multiclass_classification') for a specific target column.
+    """
+    rows = n_rows if n_rows is not None else len(series)
+    return _classify_task(series, rows)
+
+
+def detect_target_and_task(df: pd.DataFrame, target_column: str | None = None) -> dict:
     """
     Identify the most likely target column and the ML task type.
+    If target_column is specified and present in df, that column is evaluated directly.
 
     Parameters
     ----------
     df : pd.DataFrame
         The dataset (should not include preprocessing).
+    target_column : str or None
+        Optional override column to evaluate as target.
 
     Returns
     -------
@@ -110,6 +122,17 @@ def detect_target_and_task(df: pd.DataFrame) -> dict:
     if n_cols == 0:
         return _no_target(["Dataset has no columns."])
 
+    # If target_column is explicitly requested and present
+    if target_column and target_column in df.columns:
+        task_type, task_reasons = _classify_task(df[target_column], n_rows)
+        return {
+            "target_column": target_column,
+            "task_type": task_type,
+            "confidence": "high",
+            "reasons": [f"Target column '{target_column}' selected by user."] + task_reasons,
+            "all_scores": {target_column: 10.0},
+        }
+
     scores = {}
     column_reasons = {}
 
@@ -122,9 +145,17 @@ def detect_target_and_task(df: pd.DataFrame) -> dict:
     best_col = max(scores, key=lambda c: scores[c])
     best_score = scores[best_col]
 
-    # If the best score is very low, we are not confident enough to recommend
+    # If the best score is very low, we default to the last column if it is numeric or categorical
     if best_score <= 0:
-        return _no_target(["No column scored positively as a target candidate."])
+        last_col = df.columns[-1]
+        task_type, task_reasons = _classify_task(df[last_col], n_rows)
+        return {
+            "target_column": last_col,
+            "task_type": task_type,
+            "confidence": "low",
+            "reasons": ["Defaulted to last column as target."] + task_reasons,
+            "all_scores": scores,
+        }
 
     # Determine task type based on the winning column
     task_type, task_reasons = _classify_task(df[best_col], n_rows)

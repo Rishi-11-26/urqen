@@ -1,11 +1,13 @@
-# Previa
+# URQEN
 
-**Trustworthy Pre-Model Data Intelligence Workbench**
+**Trustworthy Tabular Machine Learning Experimentation & Decision Support Platform**
 
 > *"Understand the data before trusting the model."*
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-159%20Passed%20(100%25)-brightgreen.svg)]()
+[![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61dafb.svg)](https://react.dev)
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI%20REST-009688.svg)](https://fastapi.tiangolo.com)
+[![Tests](https://img.shields.io/badge/Tests-168%20Passed%20(100%25)-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)]()
 [![Status](https://img.shields.io/badge/Version-v1.0.0%20Release-blue.svg)]()
 
@@ -20,20 +22,36 @@ In practical machine learning, models fail not because algorithms are weak, but 
 - **Blind AutoML**: Tools that treat data preparation as an opaque black box, leaving users unable to explain *why* transformations were chosen.
 - **Overconfident Target Inferences**: Hardcoding assumptions about target labels without human verification.
 
-**Previa** is an explainable, leakage-safe data intelligence workbench designed to audit, prepare, benchmark, explain, and validate tabular datasets before machine learning models are deployed. Previa automates repetitive pre-modeling tasks while exposing evidence, trade-offs, confidence levels, and clear reasoning for every recommendation.
+**URQEN** is a tabular machine-learning workbench for inspecting data, configuring experiments, comparing model results, and reviewing available diagnostics.
 
 ---
 
-## 2. Core Differentiators
+## 2. Core Differentiators & Product Principles
 
-1. **Evidence-Backed Data Intelligence**: Identifies data problems, presents measured statistical evidence, recommends actions, explains trade-offs, and prompts for human review.
-2. **Trustworthy ML Experiments**: Enforces leakage prevention via `scikit-learn` `ColumnTransformer` fitted strictly on training data, adaptive cross-validation for small datasets, and execution timing.
-3. **Transparent Model Decisions & Explainability**: Explains why a model was selected, how it performed, which features influenced its predictions (via SHAP or robust model fallbacks), and attaches scientific causality disclaimers.
-4. **Reproducible Provenance**: Generates unique experiment IDs, SHA-256 dataset fingerprints, downloadable JSON manifests, and self-contained `.joblib` model bundles with real-time inference prediction.
+1. **Both Guided & Expert Modes are 100% Free**: No paywalls, no fake payments, and no artificial restriction of Expert Mode.
+2. **Evidence-Backed Data Intelligence**: Identifies data problems, presents measured statistical evidence, recommends actions, explains trade-offs, and prompts for human review across an 8-point finding schema.
+3. **25 Algorithmic Baselines Across 5 Families**: Benchmarking spans Linear Models, Tree Ensembles, Distance/Kernel Models, Probabilistic Networks (Naive Bayes & RBFN), and modern Gradient Boosting (XGBoost).
+4. **Interactive Validation & Hyperparameter Control**:
+   - Customizable Cross-Validation folds (2 to 20, default 10 with adaptive small-dataset fallbacks).
+   - Adjustable Holdout Test Split (10% to 40%, default 20%).
+   - Numerical Scaler selection (`StandardScaler`, `MinMaxScaler`, `RobustScaler`, or `None`).
+   - Hyperparameter fine-tuning for XGBoost (`learning_rate`, `max_depth`, `n_estimators`, `min_child_weight`), Random Forest, Decision Tree, SVM (`C`), and Logistic Regression.
+5. **Transparent Model Decisions & Explainability**: Explains why a model was selected, how it performed, which features influenced its predictions (via SHAP or robust model fallbacks), and attaches scientific causality disclaimers.
+6. **Deployable Provenance & Real-Time Inference**: Generates unique experiment IDs, SHA-256 dataset fingerprints, downloadable JSON manifests, self-contained `.joblib` model bundles, and provides a built-in browser Inference Sandbox.
 
 ---
 
-## 3. End-to-End Workflow Architecture
+## 3. Technology Stack
+
+- **Frontend**: React 19, Vite, Lucide Icons, custom CSS design system.
+- **Backend API**: Python FastAPI, Pydantic v2 schemas, REST endpoints, Background Tasks.
+- **ML Core Engine**: Python (`previa/`), Pandas, NumPy, scikit-learn, XGBoost, SHAP, Joblib.
+- **Authentication and cloud administration**: Supabase Auth and optional Supabase database/storage administration.
+- **Testing**: `pytest` unit and integration tests.
+
+---
+
+## 4. End-to-End Architecture
 
 ```
 Raw CSV / XLSX
@@ -44,9 +62,9 @@ Raw CSV / XLSX
       ↓
 [3. Evidence-Backed Health] ────→ 8-point findings: Evidence, severity, why it matters, trade-offs
       ↓
-[4. Leakage & Reliability]  ────→ Near-perfect correlation (|r| >= 0.95), suspicious naming, imbalance
+[4. Leakage & Reliability]  ────→ Correlation (|r| >= 0.95), suspicious naming, class imbalance
       ↓
-[5. Target & Task Detection]────→ Inferred target & task (binary, multiclass, regression) with override
+[5. Target & Task Detection]────→ Inferred target & task (binary, multiclass, regression) with candidate override
       ↓
 [6. Feature Intelligence]   ────→ Type classification (numeric, boolean, categorical, constant)
       ↓
@@ -54,122 +72,109 @@ Raw CSV / XLSX
       ↓
 [8. Leakage-Safe Pipeline]  ────→ ColumnTransformer blueprint (fitted strictly on training splits)
       ↓
-[9. Centralized Benchmark]  ────→ Model Registry (LR, Ridge, DT, RF, XGBoost) with adaptive CV & timing
+[9. Centralized Benchmark]  ────→ 25 Model Registry with CV folds, split slider, scalers & hyperparams
       ↓
-[10. Interactive Diagnostics]───→ Plotly Confusion Matrix, ROC curve, Actual vs. Predicted, Residuals
+[10. Interactive Diagnostics]───→ Confusion Matrix heatmap, Holdout evaluation & leaderboards
       ↓
 [11. Explainability Engine] ────→ SHAP values & model feature importance with causality disclaimer
       ↓
-[12. Tracking & Export]     ────→ SHA-256 manifest, HTML/Markdown report, and Joblib prediction bundle
+[12. Tracking & Live Sandbx]────→ SHA-256 manifest, HTML/Markdown reports, .joblib bundle & browser inference
 ```
 
 ---
 
-## 4. Technical Documentation
-
-For in-depth architectural and mathematical details, consult the dedicated guides in `docs/`:
-
-- [**docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md): Complete technical blueprint, module boundaries, and design principles.
-- [**docs/PREVIA_DEEP_DIVE.md**](docs/PREVIA_DEEP_DIVE.md): Detailed function-by-function reference, inputs, outputs, failure modes, and ML concepts.
-- [**docs/BENCHMARKS.md**](docs/BENCHMARKS.md): Reproducible benchmarks comparing Previa vs naive baselines across standard tabular tasks.
-- [**docs/CHANGELOG.md**](docs/CHANGELOG.md): Record of changes and enhancements in v1.0.0.
-
----
-
-## 5. Tech Stack
-
-- **Language**: Python 3.10+ (tested on Python 3.13)
-- **Data Manipulation**: `pandas`, `numpy`
-- **Machine Learning**: `scikit-learn`
-- **Optional Gradient Boosting**: `xgboost`
-- **Explainability**: `shap` (with deterministic model feature importance fallbacks)
-- **Interactive Visualizations**: `plotly`
-- **Web UI**: `streamlit`
-- **Model Serialization & Excel**: `joblib`, `openpyxl`
-- **Testing**: `pytest`
-
----
-
-## 6. Installation & Quickstart
+## 5. Quickstart & Execution
 
 ### Prerequisites
-Ensure Python 3.10+ is installed on your machine.
+- Python 3.10+ (tested on Python 3.13)
+- Node.js 18+ (tested on Node 24)
 
-### 1. Clone & Navigate
-```bash
-git clone https://github.com/Rishi-11-26/previa.git
-cd previa
+### 1. Configure the environment
+Copy `.env.example` to `.env` and set the Supabase values used by the backend. For the frontend, create `frontend/.env` with:
+
+```dotenv
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your-supabase-anon-public-key
 ```
 
-### 2. Install Dependencies
+Never put the Supabase service-role key in a frontend environment variable or commit either `.env` file.
+
+### 2. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Run Automated Tests
+```bash
+cd frontend
+npm ci
+cd ..
+```
+
+### 3. Run automated tests
 ```bash
 python -m pytest -v
 ```
 
-### 4. Launch the Streamlit Workbench
+### 4. Launch URQEN Full-Stack Application
+
+#### Option A: FastAPI Server with Built-in Frontend (Recommended)
+Build the frontend once and serve everything from FastAPI:
 ```bash
-streamlit run app/app.py
+cd frontend
+npm ci
+npm run build
+cd ..
+uvicorn backend.main:app --reload --port 8000
 ```
-Open your browser at `http://localhost:8501`.
+Open **`http://localhost:8000`**. FastAPI serves the API, OpenAPI docs at `/docs`, and the built frontend.
+
+#### Option B: Independent Vite Hot-Reloading Dev Server
+For active frontend development with Instant HMR:
+```bash
+# Terminal 1: Backend
+uvicorn backend.main:app --reload --port 8000
+
+# Terminal 2: Frontend
+cd frontend
+npm run dev
+```
+Open **`http://localhost:5173`** (Vite proxies all `/api` calls directly to FastAPI on port 8000).
 
 ---
 
-## 7. Model Registry & Evaluation
+## 6. Deploy on Render
 
-### Supported Models
+The repository includes a root-level `render.yaml` Blueprint and a multi-stage `Dockerfile`. In Render, create a **New → Blueprint** deployment, connect this GitHub repository, and apply the Blueprint. Supply these environment variables when prompted:
 
-| Task | Core Baseline Models | Optional Accelerated Model |
+- `SUPABASE_URL` and `SUPABASE_KEY` (the Supabase project URL and anon/public key)
+- `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (same URL and anon/public key; used to build the frontend)
+- `SUPABASE_SERVICE_ROLE_KEY` (backend only; keep secret)
+- `SUPABASE_JWT_SECRET`
+- `ADMIN_EMAILS` (comma-separated founder email allowlist)
+
+If the URQEN tables have not been created, run `supabase_schema.sql` in the Supabase SQL Editor. Set the Supabase Auth site URL to the deployed Render URL and add the relevant redirect URLs in Supabase Auth settings.
+
+**Storage note:** Render's filesystem is ephemeral by default. URQEN's local dataset and artifact files can be lost when the service restarts or redeploys. Use durable cloud storage or configure a persistent disk before storing production user data; persistent disks require a paid Render service.
+
+---
+
+## 7. Model Catalog & Evaluation
+
+### Supported Algorithms (25 Models)
+
+| Algorithmic Family | Classification Algorithms | Regression Algorithms |
 | :--- | :--- | :--- |
-| **Classification** | Logistic Regression, Decision Tree, Random Forest | XGBoost Classifier |
-| **Regression** | Linear Regression, Ridge Regression, Decision Tree, Random Forest | XGBoost Regressor |
-
-### Metrics Computed
-- **Classification**: Accuracy, Precision, Recall, $F_1$-score (macro/weighted), ROC-AUC (binary).
-- **Regression**: Mean Absolute Error (MAE), Mean Squared Error (MSE), Root Mean Squared Error (RMSE), $R^2$ Score.
-- **Adaptive Cross-Validation**:
-  - $n \ge 50$: 5-fold CV
-  - $20 \le n < 50$: 3-fold CV
-  - $10 \le n < 20$: 2-fold CV
-  - $n < 10$: CV skipped with stability advisory.
+| **Linear Models** | Logistic Regression, Ridge Classifier, SGD Classifier | Linear Regression, Ridge, Lasso, ElasticNet |
+| **Tree & Ensembles** | Decision Tree, Random Forest, Extra Trees, Gradient Boosting, AdaBoost | Decision Tree Regressor, Random Forest Regressor, Extra Trees Regressor, Gradient Boosting Regressor, AdaBoost Regressor |
+| **Distance & Kernels** | K-Nearest Neighbors, Linear SVM, Kernel SVM (RBF) | K-Nearest Neighbors Regressor, Support Vector Regressor |
+| **Probabilistic / Networks**| Gaussian Naive Bayes, Multinomial Naive Bayes, Bernoulli Naive Bayes, Radial Basis Function Network (RBFN) | Radial Basis Function Regressor |
+| **Modern Boosting** | XGBoost Classifier | XGBoost Regressor |
 
 ---
 
-## 8. Automated Testing
+## 8. Automated Test Suite
 
-Previa maintains a comprehensive test suite across 13 test files:
+The automated tests cover ML correctness, leakage prevention, edge-case safety, API contracts, administrative cleanup, and serializability. Run the current suite with `python -m pytest -v`.
 
-```text
-tests/test_benchmarker.py .............. (18 passed)
-tests/test_competitive_benchmarks.py .. (2 passed)
-tests/test_diagnostics.py ..... (5 passed)
-tests/test_experiment_tracker.py ... (3 passed)
-tests/test_explainer.py ... (3 passed)
-tests/test_exporter.py .......... (10 passed)
-tests/test_feature_intelligence.py .................... (20 passed)
-tests/test_health.py ................. (17 passed)
-tests/test_leakage.py ..... (5 passed)
-tests/test_loader.py .......... (10 passed)
-tests/test_model_bundle.py .. (2 passed)
-tests/test_model_registry.py ...... (6 passed)
-tests/test_pipeline_builder.py ......... (9 passed)
-tests/test_profiler.py ................ (16 passed)
-tests/test_recommender.py ................ (16 passed)
-tests/test_report_generator.py .. (2 passed)
-tests/test_task_detection.py ............. (13 passed)
-tests/test_workflow.py .. (2 passed)
-============================ 159 passed in 27.26s =============================
-```
 
 ---
-
-## 9. Known Limitations & Scope Boundary (v1.0.0)
-
-- **Tabular Scope**: Previa is built for structured tabular data (CSV/XLSX). Unstructured text, audio, and image arrays are explicitly out of scope.
-- **Local-First**: No mandatory cloud accounts, billing keys, or paid LLM APIs are required. Everything runs locally.
-- **Explainability**: Predictive feature importance quantifies model dependency and loss minimization; it does NOT establish real-world causality.
-- **AutoML Boundary**: Previa prioritizes transparent baseline comparison, data health auditing, and leakage-safe preprocessing over black-box deep search.

@@ -1,7 +1,7 @@
 """
 previa/benchmarking/competitive_benchmarks.py
 ---------------------------------------------
-Reproducible benchmarking suite comparing Previa's evidence-backed,
+Reproducible benchmarking suite comparing URQEN's evidence-backed,
 leakage-safe preprocessing & baseline models against a Naive Baseline.
 
 Benchmark Tasks:
@@ -94,7 +94,7 @@ def generate_benchmark_datasets() -> dict[str, pd.DataFrame]:
 
 def run_competitive_benchmark() -> dict:
     """
-    Execute competitive benchmarks comparing Previa vs Naive Baseline
+    Execute competitive benchmarks comparing URQEN vs Naive Baseline
     across the standard benchmark datasets.
 
     Returns
@@ -119,7 +119,7 @@ def run_competitive_benchmark() -> dict:
             task_type = "regression"
             metric_name = "r2"
 
-        # --- A. Previa Execution ---
+        # --- A. URQEN Execution ---
         start_t = time.perf_counter()
 
         profile = profile_dataset(df)

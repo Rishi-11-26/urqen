@@ -174,6 +174,52 @@ def audit_leakage_and_reliability(
                         "recommendation": "Review column origin. If this feature is a post-event classification, exclude it.",
                     })
 
+        # C2. Numeric feature that perfectly separates a categorical target (threshold-derived leakage)
+        elif not is_target_numeric and pd.api.types.is_numeric_dtype(series):
+            valid_mask = series.notnull() & target_series.notnull()
+            if valid_mask.sum() >= 10:
+                try:
+                    # Try a simple threshold split: if all groups have non-overlapping ranges
+                    grouped = df.loc[valid_mask].groupby(target_series[valid_mask])[col]
+                    group_mins = grouped.min()
+                    group_maxs = grouped.max()
+                    # Check if ranges don't overlap (perfect separation)
+                    perfect_sep = True
+                    classes = sorted(group_mins.index)
+                    for i in range(len(classes)):
+                        for j in range(i + 1, len(classes)):
+                            a_min, a_max = group_mins[classes[i]], group_maxs[classes[i]]
+                            b_min, b_max = group_mins[classes[j]], group_maxs[classes[j]]
+                            if a_max >= b_min and b_max >= a_min:  # ranges overlap
+                                perfect_sep = False
+                                break
+                        if not perfect_sep:
+                            break
+                    if perfect_sep:
+                        range_info = "; ".join(
+                            [f"'{c}': [{group_mins[c]:.2g}, {group_maxs[c]:.2g}]" for c in classes[:4]]
+                        )
+                        warnings.append({
+                            "feature": col,
+                            "warning_type": "threshold_derived_target_leakage",
+                            "severity": "high",
+                            "message": (
+                                f"⚠️ CRITICAL LEAKAGE DETECTED: Numeric feature '{col}' perfectly separates all target classes "
+                                f"in '{target_column}' with zero overlap between groups. "
+                                f"This strongly suggests '{col}' was used to derive '{target_column}' via a threshold rule. "
+                                f"Including it in training causes artificial 100% accuracy — all models learn this rule trivially."
+                            ),
+                            "evidence": f"per-class ranges have zero overlap: {range_info}",
+                            "recommendation": (
+                                f"EXCLUDE '{col}' from training features. "
+                                f"It is almost certainly the numerical precursor used to create '{target_column}'. "
+                                f"Models trained with this feature cannot generalize to real-world data "
+                                f"where the target label is unknown at prediction time."
+                            ),
+                        })
+                except Exception:
+                    pass
+
         # D. Excessive missingness hazard
         missing_pct = float(series.isnull().mean() * 100)
         if missing_pct >= HIGH_FEATURE_MISSING_THRESHOLD:

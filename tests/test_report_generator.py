@@ -38,7 +38,7 @@ class TestReportGenerator:
 
     def test_markdown_report_sections(self, sample_manifest):
         md = generate_markdown_report(sample_manifest)
-        assert "# Previa — Trustworthy Model Decision Report" in md
+        assert "# URQEN — Model Decision Report" in md
         assert "## 1. Experiment Overview" in md
         assert "## 2. Dataset Summary & Schema" in md
         assert "## 6. Evaluated Models & Winner Selection" in md
@@ -47,6 +47,6 @@ class TestReportGenerator:
     def test_html_report_structure(self, sample_manifest):
         html_out = generate_html_report(sample_manifest)
         assert "<!DOCTYPE html>" in html_out
-        assert "<title>Previa Model Decision Report</title>" in html_out
-        assert "<h1>Previa — Trustworthy Model Decision Report</h1>" in html_out
+        assert "<title>URQEN Model Decision Report</title>" in html_out
+        assert "<h1>URQEN — Model Decision Report</h1>" in html_out
         assert "</html>" in html_out

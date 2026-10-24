@@ -1,7 +1,7 @@
 """
 previa/export/model_bundle.py
 -----------------------------
-Joblib-based export, loading, and inference prediction engine for Previa.
+Joblib-based export, loading, and inference prediction engine for URQEN.
 
 Bundles the fitted ColumnTransformer preprocessing pipeline and trained
 estimator into a single self-contained artifact alongside essential metadata:
@@ -149,6 +149,6 @@ def load_model_bundle(filepath: str) -> PreviaModelBundle:
 
     bundle = joblib.load(str(path))
     if not isinstance(bundle, PreviaModelBundle):
-        raise TypeError(f"Loaded object is not a valid PreviaModelBundle (type: {type(bundle)}).")
+        raise TypeError(f"Loaded object is not a valid URQEN model bundle (type: {type(bundle)}).")
 
     return bundle

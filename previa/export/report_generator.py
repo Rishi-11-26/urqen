@@ -35,10 +35,10 @@ def generate_markdown_report(
     m_exp = manifest.get("explainability", {})
 
     lines = []
-    lines.append("# Previa — Trustworthy Model Decision Report")
+    lines.append("# URQEN — Model Decision Report")
     lines.append(f"**Experiment ID:** `{manifest.get('experiment_id')}`  ")
     lines.append(f"**Timestamp (UTC):** `{manifest.get('timestamp_utc')}`  ")
-    lines.append(f"**Previa Version:** `{manifest.get('software_versions', {}).get('previa')}`\n")
+    lines.append(f"**URQEN Version:** `{manifest.get('software_versions', {}).get('previa')}`\n")
     lines.append("---\n")
 
     # 1. Overview
@@ -145,7 +145,7 @@ def generate_html_report(
     html_lines.append("<html lang='en'>")
     html_lines.append("<head>")
     html_lines.append("<meta charset='UTF-8'>")
-    html_lines.append("<title>Previa Model Decision Report</title>")
+    html_lines.append("<title>URQEN Model Decision Report</title>")
     html_lines.append("<style>")
     html_lines.append("body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #24292f; max-width: 900px; margin: 40px auto; padding: 0 20px; }")
     html_lines.append("h1 { border-bottom: 2px solid #0969da; padding-bottom: 8px; color: #0969da; }")

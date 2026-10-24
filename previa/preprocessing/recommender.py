@@ -164,7 +164,7 @@ def _recommend_for_feature(
         detected_type=feature_type,
         issue="Feature type could not be determined.",
         recommendation="flag_for_review",
-        reason="Previa could not classify this feature. Manual review is needed.",
+        reason="URQEN could not classify this feature. Manual review is needed.",
         evidence=f"feature_type={feature_type}",
         confidence="low",
     )

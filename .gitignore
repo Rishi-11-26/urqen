@@ -28,8 +28,19 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local environment files and secrets
+.env*
+!.env.example
+frontend/.env*
+
 # Streamlit
 .streamlit/
 
-# Exports produced by Previa during testing
+# Exports and runtime storage produced by Previa
 exports/
+storage/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

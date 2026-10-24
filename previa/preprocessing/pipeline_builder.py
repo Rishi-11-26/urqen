@@ -112,10 +112,10 @@ def build_pipeline(
             numeric_steps.append(("scaler", StandardScaler()))
     numeric_pipeline = Pipeline(steps=numeric_steps)
 
-    # Categorical pipeline
+    # Categorical pipeline (cap at top 30 categories to prevent dimensional explosion)
     categorical_pipeline = Pipeline(steps=[
         ("imputer", SimpleImputer(strategy="most_frequent")),
-        ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+        ("encoder", OneHotEncoder(max_categories=30, handle_unknown="infrequent_if_exist", sparse_output=False)),
     ])
 
     # --- Assemble with ColumnTransformer ---

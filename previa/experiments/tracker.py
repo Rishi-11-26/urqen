@@ -11,7 +11,7 @@ Records complete provenance for each tabular ML experiment:
 - Target and task
 - Feature configuration & preprocessing decisions
 - Model configurations and winner selection
-- Software version metadata (Python, scikit-learn, Previa)
+- Software version metadata (Python, scikit-learn, URQEN)
 - Downloadable JSON manifest string
 """
 

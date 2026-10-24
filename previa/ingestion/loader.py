@@ -17,8 +17,8 @@ import pathlib
 import pandas as pd
 
 
-# File extensions that Previa supports.
-SUPPORTED_EXTENSIONS = {".csv", ".xlsx"}
+# File extensions that URQEN supports.
+SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 DEFAULT_MAX_FILE_SIZE_MB = 100.0
 
 
@@ -53,7 +53,7 @@ def load_dataset(file_path: str, max_size_mb: float = DEFAULT_MAX_FILE_SIZE_MB) 
     # --- 1. Check that the file exists ---
     if not path.exists():
         raise FileNotFoundError(
-            f"Previa could not find the file: '{file_path}'\n"
+            f"URQEN could not find the file: '{file_path}'\n"
             f"Please check that the path is correct."
         )
 
@@ -62,7 +62,7 @@ def load_dataset(file_path: str, max_size_mb: float = DEFAULT_MAX_FILE_SIZE_MB) 
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(
             f"Unsupported file type: '{ext}'\n"
-            f"Previa currently supports: {sorted(SUPPORTED_EXTENSIONS)}"
+            f"URQEN currently supports: {sorted(SUPPORTED_EXTENSIONS)}"
         )
 
     # --- 3. Check file size limit ---
@@ -77,11 +77,13 @@ def load_dataset(file_path: str, max_size_mb: float = DEFAULT_MAX_FILE_SIZE_MB) 
     try:
         if ext == ".csv":
             df = pd.read_csv(path)
-        else:  # .xlsx
+        elif ext == ".xlsx":
             df = pd.read_excel(path, engine="openpyxl")
+        else:  # .xls
+            df = pd.read_excel(path)
     except Exception as exc:
         raise RuntimeError(
-            f"Previa could not read the file '{path.name}'.\n"
+            f"URQEN could not read the file '{path.name}'.\n"
             f"Underlying error: {exc}"
         ) from exc
 

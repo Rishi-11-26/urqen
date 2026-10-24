@@ -1,0 +1,5 @@
+project_id = "urqen"
+
+[auth.email.template.confirmation]
+subject = "Confirm your URQEN email address"
+content_path = "./supabase/templates/confirmation.html"

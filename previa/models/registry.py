@@ -1,7 +1,7 @@
 """
 previa/models/registry.py
 -------------------------
-Centralized Model Registry for Previa.
+Centralized Model Registry for URQEN.
 
 Provides a unified catalog of algorithms for tabular regression
 and classification tasks:
@@ -302,7 +302,7 @@ def create_model_instance(name: str, task_type: str, random_state: int = RANDOM_
             var_sm = float(hyperparams.get("var_smoothing", 1e-9))
             return GaussianNB(var_smoothing=var_sm)
 
-        elif name_clean in ("RBF Network (RBFN)", "RBFN", "RBF SVM", "RBF Network"):
+        elif name_clean in ("RBF Network (RBFN)", "RBFN", "RBF SVM", "RBF Network", "Radial Basis Function Network"):
             c_val = float(hyperparams.get("C", 1.0))
             gamma = hyperparams.get("gamma", "scale")
             return SVC(C=c_val, kernel="rbf", gamma=gamma, probability=True, random_state=random_state)

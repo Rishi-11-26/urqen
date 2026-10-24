@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Confirm your URQEN email</title>
+  </head>
+  <body style="margin:0;background:#080d17;color:#e2e8f0;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#080d17;padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#0d1524;border:1px solid #203047;border-radius:16px;padding:36px;">
+            <tr>
+              <td>
+                <p style="margin:0 0 24px;color:#00e5c3;font-size:13px;font-weight:bold;letter-spacing:3px;">URQEN</p>
+                <h1 style="margin:0 0 16px;color:#f8fafc;font-size:26px;line-height:1.25;">Confirm your email address</h1>
+                <p style="margin:0 0 12px;color:#cbd5e1;font-size:15px;line-height:1.7;">
+                  Thank you for creating a URQEN account. Please confirm this email address to finish setting up your account and start exploring your data workspace.
+                </p>
+                <p style="margin:0 0 28px;color:#94a3b8;font-size:14px;line-height:1.7;">
+                  If you did not create a URQEN account, you can ignore this message.
+                </p>
+                <p style="margin:0 0 28px;">
+                  <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#00e5c3;border-radius:8px;padding:13px 22px;color:#06111a;font-size:14px;font-weight:bold;text-decoration:none;">
+                    Confirm email
+                  </a>
+                </p>
+                <p style="margin:0;color:#64748b;font-size:12px;line-height:1.6;">
+                  If the button does not work, copy and paste this link into your browser:<br>
+                  <a href="{{ .ConfirmationURL }}" style="color:#00e5c3;word-break:break-all;">{{ .ConfirmationURL }}</a>
+                </p>
+                <hr style="margin:28px 0;border:0;border-top:1px solid #203047;">
+                <p style="margin:0;color:#64748b;font-size:11px;line-height:1.6;">
+                  URQEN helps you inspect tabular data and understand machine-learning experiments. This is an automated account verification email.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

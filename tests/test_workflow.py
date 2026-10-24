@@ -1,7 +1,7 @@
 """
 tests/test_workflow.py
 ----------------------
-End-to-end workflow integration test for Previa.
+End-to-end workflow integration test for URQEN.
 
 Tests the full sequence:
   ingestion -> profiling -> health audit -> target/task detection ->
