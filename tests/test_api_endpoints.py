@@ -29,6 +29,16 @@ def sample_csv_bytes():
     return buf.getvalue()
 
 
+@pytest.fixture
+def local_api_user():
+    app.dependency_overrides[get_current_user] = lambda: UserIdentity(
+        user_id="local_dev_user",
+        email="dev@urqen.local",
+    )
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
+
+
 def test_health_check():
     resp = client.get("/api/health")
     assert resp.status_code == 200
@@ -210,7 +220,7 @@ def test_founder_can_download_history_pdf(monkeypatch):
     assert response.content.startswith(b"%PDF-")
 
 
-def test_dataset_upload_profile_and_audit(sample_csv_bytes):
+def test_dataset_upload_profile_and_audit(sample_csv_bytes, local_api_user):
     # 1. Upload
     files = {"file": ("test_dataset.csv", sample_csv_bytes, "text/csv")}
     upload_resp = client.post("/api/datasets/upload", files=files)

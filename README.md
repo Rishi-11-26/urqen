@@ -98,6 +98,10 @@ VITE_SUPABASE_ANON_KEY=your-supabase-anon-public-key
 ```
 
 Use the Supabase **Project URL** as `VITE_SUPABASE_URL` (do not append `/rest/v1` or `/auth/v1`).
+Set `SUPABASE_URL` to the same project URL for backend authentication. `SUPABASE_JWT_SECRET` is
+only needed for legacy HS256 signing keys; newer asymmetric signing keys are verified using the
+project's JWKS endpoint automatically. Do not use the Supabase anon key or service-role key as the
+JWT secret.
 
 Never put the Supabase service-role key in a frontend environment variable or commit either `.env` file.
 

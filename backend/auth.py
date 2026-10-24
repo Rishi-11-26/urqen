@@ -6,20 +6,20 @@ Validates Supabase-issued JWT tokens and extracts user identity.
 Supports standalone local development fallback when no token is provided.
 
 Verification path:
-  1. If SUPABASE_JWT_SECRET is set → verify HMAC-SHA256 signature rigorously.
-  2. If token present but no secret configured → decode payload unverified
-     (trusts Supabase, safe because Supabase only issues valid tokens).
-  3. No token at all → local_dev_user fallback (local-only mode).
+  1. Legacy HS256 tokens are verified with SUPABASE_JWT_SECRET.
+  2. Asymmetric tokens are verified using the Supabase project's JWKS.
+  3. Local unverified decoding and local_dev_user fallback are available only
+     when neither Supabase verification setting is configured.
 """
 
 import json
 import base64
-import hmac
-import hashlib
-import time
+from functools import lru_cache
 from typing import Optional
 from fastapi import Header, Query, HTTPException, status, Depends
+import jwt
 from pydantic import BaseModel
+from jwt import InvalidTokenError, PyJWKClient
 from backend.config import settings
 
 
@@ -40,19 +40,36 @@ def _decode_jwt_payload_unverified(token: str) -> dict:
     return json.loads(decoded_bytes.decode("utf-8"))
 
 
-def _verify_jwt_signature_hmac(token: str, secret: str) -> bool:
-    """Verifies HMAC-SHA256 signature — used when SUPABASE_JWT_SECRET is configured."""
-    try:
-        parts = token.split(".")
-        if len(parts) != 3:
-            return False
-        header_payload = f"{parts[0]}.{parts[1]}".encode("utf-8")
-        sig_b64 = parts[2] + "=" * ((4 - len(parts[2]) % 4) % 4)
-        signature = base64.urlsafe_b64decode(sig_b64)
-        expected_sig = hmac.new(secret.encode("utf-8"), header_payload, hashlib.sha256).digest()
-        return hmac.compare_digest(signature, expected_sig)
-    except Exception:
-        return False
+@lru_cache(maxsize=8)
+def _get_jwks_client(supabase_url: str) -> PyJWKClient:
+    return PyJWKClient(
+        f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json",
+    )
+
+
+def _decode_and_verify_jwt(token: str) -> dict:
+    """Verifies legacy HMAC tokens or asymmetric Supabase signing-key tokens."""
+    header = jwt.get_unverified_header(token)
+    algorithm = header.get("alg")
+
+    if algorithm == "HS256" and settings.SUPABASE_JWT_SECRET:
+        return jwt.decode(
+            token,
+            settings.SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+
+    if algorithm in ("ES256", "RS256") and settings.SUPABASE_URL:
+        signing_key = _get_jwks_client(settings.SUPABASE_URL).get_signing_key_from_jwt(token)
+        return jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=[algorithm],
+            options={"verify_aud": False},
+        )
+
+    raise InvalidTokenError("Unsupported JWT signing algorithm or missing verification configuration.")
 
 
 async def get_current_user(
@@ -65,8 +82,9 @@ async def get_current_user(
     Supports:
     - Standard 'Authorization: Bearer <token>' HTTP header (API fetch)
     - '?token=<token>' query parameter (direct browser downloads / tabs)
-    - With SUPABASE_JWT_SECRET: full HMAC-SHA256 + expiry verification.
-    - Without it: payload decoded unverified (Supabase is trusted issuer).
+    - Legacy HS256 tokens use SUPABASE_JWT_SECRET.
+    - ES256/RS256 tokens are verified against the project's Supabase JWKS.
+    - Without Supabase verification configuration: payload decoded unverified for local mode.
     - No token at all: returns local_dev_user (local dev mode only).
     """
 
@@ -79,8 +97,8 @@ async def get_current_user(
 
     # ── No token at all ──────────────────────────────────────────────────────
     if not raw_token:
-        if settings.SUPABASE_JWT_SECRET:
-            # Secret is configured — enforce auth
+        if settings.SUPABASE_JWT_SECRET or settings.SUPABASE_URL:
+            # Supabase verification is configured — enforce auth.
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing or malformed Authorization header or token query parameter.",
@@ -93,32 +111,27 @@ async def get_current_user(
             role="authenticated",
         )
 
-    # ── Decode payload (always) ──────────────────────────────────────────────
+    # ── Decode and verify token when Supabase auth is configured ──────────────
     try:
-        payload = _decode_jwt_payload_unverified(raw_token)
+        if settings.SUPABASE_JWT_SECRET or settings.SUPABASE_URL:
+            payload = _decode_and_verify_jwt(raw_token)
+        else:
+            payload = _decode_jwt_payload_unverified(raw_token)
+    except InvalidTokenError as e:
+        detail = "JWT signature verification failed."
+        if "expired" in str(e).lower():
+            detail = "Token has expired. Please sign in again."
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Malformed JWT token: {e}",
+            detail=f"Malformed or unverifiable JWT token: {e}",
             headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # ── Signature verification (when secret is available) ───────────────────
-    if settings.SUPABASE_JWT_SECRET:
-        if not _verify_jwt_signature_hmac(raw_token, settings.SUPABASE_JWT_SECRET):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="JWT signature verification failed.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        # Expiry check
-        exp = payload.get("exp", 0)
-        if exp and time.time() > exp:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token has expired. Please sign in again.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        ) from e
 
     # ── Extract identity ─────────────────────────────────────────────────────
     user_id = payload.get("sub")
