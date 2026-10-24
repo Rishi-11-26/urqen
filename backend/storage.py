@@ -12,6 +12,7 @@ import pathlib
 import datetime
 from typing import Optional, Dict, Any, List
 from backend.config import settings
+from backend.auth import _has_real_supabase_auth_config
 
 META_DIR = settings.BASE_DIR / "storage" / "metadata"
 META_DIR.mkdir(parents=True, exist_ok=True)
@@ -235,8 +236,8 @@ def get_experiment_record(experiment_id: str, user_id: str) -> Optional[dict]:
         return None
     if rec.get("user_id") == user_id:
         return rec
-    # Allow fallback for local development or direct downloads without strict JWT secret
-    if user_id == "local_dev_user" and not settings.SUPABASE_JWT_SECRET:
+    # Allow fallback for local development or direct downloads when auth is not enforced.
+    if user_id == "local_dev_user" and not _has_real_supabase_auth_config():
         return rec
     return None
 

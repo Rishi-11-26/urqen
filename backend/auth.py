@@ -23,6 +23,11 @@ from jwt import InvalidTokenError, PyJWKClient
 from backend.config import settings
 
 
+def _has_real_supabase_auth_config() -> bool:
+    """Returns True when Supabase JWT verification is configured."""
+    return bool(settings.SUPABASE_JWT_SECRET or settings.SUPABASE_URL)
+
+
 class UserIdentity(BaseModel):
     user_id: str
     email: str
@@ -110,14 +115,14 @@ async def get_current_user(
 
     # ── No token at all ──────────────────────────────────────────────────────
     if not raw_token:
-        if settings.SUPABASE_JWT_SECRET or settings.SUPABASE_URL:
+        if _has_real_supabase_auth_config():
             # Supabase verification is configured — enforce auth.
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing or malformed Authorization header or token query parameter.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        # No secret configured → local dev fallback
+        # No Supabase verification configuration → local dev fallback.
         return UserIdentity(
             user_id="local_dev_user",
             email="dev@urqen.local",
@@ -126,7 +131,7 @@ async def get_current_user(
 
     # ── Decode and verify token when Supabase auth is configured ──────────────
     try:
-        if settings.SUPABASE_JWT_SECRET or settings.SUPABASE_URL:
+        if _has_real_supabase_auth_config():
             payload = _decode_and_verify_jwt(raw_token)
         else:
             payload = _decode_jwt_payload_unverified(raw_token)

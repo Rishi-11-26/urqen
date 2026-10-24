@@ -259,7 +259,7 @@ def test_dataset_upload_profile_and_audit(sample_csv_bytes, local_api_user):
     client.delete(f"/api/datasets/{dataset_id}")
 
 
-def test_experiment_creation_and_lifecycle(sample_csv_bytes):
+def test_experiment_creation_and_lifecycle(sample_csv_bytes, local_api_user):
     # 1. Upload dataset
     files = {"file": ("exp_dataset.csv", sample_csv_bytes, "text/csv")}
     up = client.post("/api/datasets/upload", files=files).json()
