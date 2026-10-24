@@ -12,7 +12,7 @@ const NAV_ITEMS = [
 
 export default function Sidebar({ currentTab, setCurrentTab, storageQuota, backendOnline, hasActiveExperiment, isAdmin }) {
   const usedBytes  = Number(storageQuota?.total_used_bytes) || 0;
-  const limitBytes = Number(storageQuota?.quota_limit_bytes) || 524288000;
+  const limitBytes = Number(storageQuota?.quota_limit_bytes) || 52428800;
   const pct        = Math.min(100, Math.round((usedBytes / limitBytes) * 100));
   const usedMB     = usedBytes / 1048576;
   const limitMB    = Math.round(limitBytes / 1048576);
