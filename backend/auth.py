@@ -41,9 +41,10 @@ def _decode_jwt_payload_unverified(token: str) -> dict:
 
 
 @lru_cache(maxsize=8)
-def _get_jwks_client(supabase_url: str) -> PyJWKClient:
+def _get_jwks_client(supabase_url: str, supabase_key: str) -> PyJWKClient:
     return PyJWKClient(
         f"{supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json",
+        headers={"apikey": supabase_key} if supabase_key else None,
     )
 
 
@@ -61,7 +62,10 @@ def _decode_and_verify_jwt(token: str) -> dict:
         )
 
     if algorithm in ("ES256", "RS256") and settings.SUPABASE_URL:
-        signing_key = _get_jwks_client(settings.SUPABASE_URL).get_signing_key_from_jwt(token)
+        signing_key = _get_jwks_client(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_KEY,
+        ).get_signing_key_from_jwt(token)
         return jwt.decode(
             token,
             signing_key.key,

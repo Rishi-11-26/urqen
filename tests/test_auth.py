@@ -40,12 +40,33 @@ def test_current_user_verifies_es256_token_with_supabase_jwks(monkeypatch):
 
     monkeypatch.setattr(auth.settings, "SUPABASE_JWT_SECRET", "legacy-secret")
     monkeypatch.setattr(auth.settings, "SUPABASE_URL", "https://project.supabase.co")
-    monkeypatch.setattr(auth, "_get_jwks_client", lambda _url: FakeJwksClient())
+    monkeypatch.setattr(auth.settings, "SUPABASE_KEY", "test-supabase-api-key")
+    monkeypatch.setattr(auth, "_get_jwks_client", lambda _url, _key: FakeJwksClient())
 
     user = asyncio.run(auth.get_current_user(authorization=f"Bearer {token}"))
 
     assert user.user_id == "user-456"
     assert user.email == "user@example.test"
+
+
+def test_jwks_client_sends_supabase_api_key(monkeypatch):
+    client_arguments = {}
+
+    def fake_client(url, **kwargs):
+        client_arguments["url"] = url
+        client_arguments.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(auth, "PyJWKClient", fake_client)
+    auth._get_jwks_client.cache_clear()
+
+    auth._get_jwks_client("https://project.supabase.co", "test-supabase-api-key")
+
+    assert client_arguments["url"] == (
+        "https://project.supabase.co/auth/v1/.well-known/jwks.json"
+    )
+    assert client_arguments["headers"] == {"apikey": "test-supabase-api-key"}
+    auth._get_jwks_client.cache_clear()
 
 
 def test_current_user_rejects_invalid_hs256_signature(monkeypatch):
