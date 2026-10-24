@@ -97,6 +97,8 @@ VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_ANON_KEY=your-supabase-anon-public-key
 ```
 
+Use the Supabase **Project URL** as `VITE_SUPABASE_URL` (do not append `/rest/v1` or `/auth/v1`).
+
 Never put the Supabase service-role key in a frontend environment variable or commit either `.env` file.
 
 ### 2. Install dependencies
