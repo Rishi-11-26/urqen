@@ -39,6 +39,13 @@ app.include_router(admin.router)
 app.include_router(presence.router)
 app.include_router(account.router)
 
+from backend.storage import get_maintenance_status
+
+@app.get("/api/maintenance", tags=["Health"])
+async def check_maintenance():
+    """Public endpoint to check if maintenance mode is active."""
+    return get_maintenance_status()
+
 
 
 from fastapi.responses import JSONResponse

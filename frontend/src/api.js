@@ -290,4 +290,18 @@ export const api = {
     });
     return handleResponse(res);
   },
+
+  getMaintenanceStatus: async () => {
+    const res = await fetch(`${BASE_URL}/maintenance`);
+    return handleResponse(res);
+  },
+
+  toggleMaintenance: async (active, message) => {
+    const res = await fetch(`${BASE_URL}/admin/maintenance`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ active, message }),
+    });
+    return handleResponse(res);
+  },
 };

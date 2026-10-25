@@ -48,6 +48,9 @@ function UrqenApp() {
   const [legalModalOpen, setLegalModalOpen] = useState(false);
   const [legalModalTab, setLegalModalTab] = useState('terms');
 
+  // Maintenance mode
+  const [maintenance, setMaintenance] = useState({ active: false, message: '' });
+
   const handleOpenLegal = (tab = 'terms') => {
     setLegalModalTab(tab);
     setLegalModalOpen(true);
@@ -131,6 +134,27 @@ function UrqenApp() {
       window.clearInterval(timer);
     };
   }, [session?.access_token]);
+
+  // Periodic check for platform maintenance mode
+  useEffect(() => {
+    let isMounted = true;
+    const checkMaintenance = async () => {
+      try {
+        const m = await api.getMaintenanceStatus();
+        if (isMounted && m) {
+          setMaintenance(m);
+        }
+      } catch (err) {
+        // silent fallback
+      }
+    };
+    checkMaintenance();
+    const interval = window.setInterval(checkMaintenance, 20000);
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   // ─────────────────── Auth callbacks ───────────────────
   const handleAuthSuccess = (newSession, newUser) => {
@@ -366,6 +390,47 @@ function UrqenApp() {
           onSignOut={handleSignOut}
         />
 
+        {maintenance.active && (
+          <div
+            style={{
+              background: 'linear-gradient(90deg, #b45309 0%, #d97706 100%)',
+              color: '#ffffff',
+              padding: '10px 20px',
+              fontSize: '13px',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              boxShadow: '0 2px 10px rgba(217, 119, 6, 0.3)',
+              position: 'relative',
+              zIndex: 90,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: '16px' }}>⚠️</span>
+              <span>{maintenance.message}</span>
+            </div>
+            {isAdmin && (
+              <button
+                onClick={() => setCurrentTab('admin')}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: '1px solid rgba(255, 255, 255, 0.4)',
+                  color: '#fff',
+                  borderRadius: 4,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Founder Console Controls
+              </button>
+            )}
+          </div>
+        )}
+
         {systemNotice && (
           <div
             role="presentation"
@@ -453,6 +518,7 @@ function UrqenApp() {
             onExperimentCompleted={handleExperimentCompleted}
             isBenchmarking={isBenchmarking}
             setIsBenchmarking={setIsBenchmarking}
+            maintenanceMode={maintenance.active}
           />
         )}
 

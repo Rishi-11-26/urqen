@@ -41,6 +41,10 @@ export default function AdminView({ currentUserId }) {
   const [liveUsers, setLiveUsers] = useState([]);
   const [liveUsersError, setLiveUsersError] = useState(null);
 
+  // Maintenance mode state
+  const [maintenance, setMaintenance] = useState({ active: false, message: '' });
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+
   useEffect(() => {
     loadAdminData();
   }, []);
@@ -49,14 +53,16 @@ export default function AdminView({ currentUserId }) {
     setLoading(true);
     setError(null);
     try {
-      const [ovData, expData, dsData] = await Promise.all([
+      const [ovData, expData, dsData, mData] = await Promise.all([
         api.getAdminOverview(),
         api.getAdminExperiments(),
         api.getAdminDatasets(),
+        api.getMaintenanceStatus(),
       ]);
       setOverview(ovData);
       setExperiments(expData || []);
       setDatasets(dsData || []);
+      if (mData) setMaintenance(mData);
     } catch (err) {
       console.error('Failed to load admin data:', err);
       setError(err.message || 'Failed to authenticate administrative access.');
@@ -146,6 +152,29 @@ export default function AdminView({ currentUserId }) {
       window.alert(`History export failed: ${err.message}`);
     } finally {
       setExportingHistory(false);
+    }
+  };
+
+  const handleToggleMaintenance = async () => {
+    const nextState = !maintenance.active;
+    const promptMsg = nextState
+      ? window.prompt(
+          'Enter public maintenance notice to display to users (or leave default):',
+          maintenance.message || 'URQEN is currently undergoing scheduled platform maintenance. Training is temporarily paused.'
+        )
+      : null;
+
+    if (nextState && promptMsg === null) return; // User cancelled prompt
+
+    setMaintenanceLoading(true);
+    try {
+      const res = await api.toggleMaintenance(nextState, promptMsg || maintenance.message);
+      setMaintenance(res.details || { active: nextState, message: promptMsg || maintenance.message });
+      alert(`Platform Maintenance Mode is now ${nextState ? 'ACTIVE' : 'OFF'}.`);
+    } catch (err) {
+      alert(`Failed to update maintenance state: ${err.message}`);
+    } finally {
+      setMaintenanceLoading(false);
     }
   };
 
@@ -532,8 +561,28 @@ export default function AdminView({ currentUserId }) {
           </div>
         </div>
 
-        <div style={{ fontSize: 12, color: 'var(--text-subtle)' }}>
-          Auto-Purge Policy: <strong style={{ color: 'var(--text-main)' }}>14-Day Artifact Retention</strong>
+        <div style={{ fontSize: 12, color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>Auto-Purge Policy: <strong style={{ color: 'var(--text-main)' }}>14-Day Artifact Retention</strong></span>
+          <button
+            onClick={handleToggleMaintenance}
+            disabled={maintenanceLoading}
+            style={{
+              padding: '5px 12px',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '11.5px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: maintenance.active ? '1px solid #d97706' : '1px solid var(--border-color)',
+              background: maintenance.active ? '#78350f' : 'var(--bg-subtle)',
+              color: maintenance.active ? '#fef3c7' : 'var(--text-main)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span>{maintenance.active ? '⚠️ Maintenance ACTIVE' : 'Operational (Normal)'}</span>
+            <span style={{ fontSize: 10, opacity: 0.8 }}>({maintenance.active ? 'Click to Turn Off' : 'Click to Toggle'})</span>
+          </button>
         </div>
       </div>
 

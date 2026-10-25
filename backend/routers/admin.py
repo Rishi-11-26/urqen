@@ -36,6 +36,8 @@ from backend.storage import (
     delete_dataset,
     delete_user_data,
     get_storage_stats,
+    get_maintenance_status,
+    set_maintenance_status,
     _read_json,
     EXPERIMENTS_META_FILE,
     DATASETS_META_FILE,
@@ -56,6 +58,11 @@ class RetentionPurgeRequest(BaseModel):
 
 class PurgeAllRequest(BaseModel):
     confirm_text: str
+
+
+class MaintenanceToggleRequest(BaseModel):
+    active: bool
+    message: Optional[str] = None
 
 
 @router.get("/check")
@@ -418,3 +425,23 @@ async def admin_delete_dataset(
             quota_limit_bytes=stats_after.get("quota_limit_bytes", 52428800),
         )
     return {"message": "Dataset deleted by admin.", "success": res}
+
+
+@router.get("/maintenance")
+async def get_admin_maintenance(admin: UserIdentity = Depends(require_admin)):
+    """Fetches the maintenance state for Founder console."""
+    return get_maintenance_status()
+
+
+@router.post("/maintenance")
+async def toggle_admin_maintenance(
+    req: MaintenanceToggleRequest,
+    admin: UserIdentity = Depends(require_admin),
+):
+    """Toggles platform maintenance mode on or off."""
+    res = set_maintenance_status(
+        active=req.active,
+        message=req.message,
+        updated_by=admin.email or admin.user_id,
+    )
+    return {"message": "Maintenance status updated.", "details": res}

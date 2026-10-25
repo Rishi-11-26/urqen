@@ -20,6 +20,7 @@ META_DIR.mkdir(parents=True, exist_ok=True)
 DATASETS_META_FILE = META_DIR / "datasets.json"
 EXPERIMENTS_META_FILE = META_DIR / "experiments.json"
 SYSTEM_NOTICE_FILE = META_DIR / "system_notice.json"
+MAINTENANCE_FILE = META_DIR / "maintenance.json"
 
 
 def _read_json(path: pathlib.Path) -> dict:
@@ -540,6 +541,38 @@ def get_current_system_notice(user_id: str) -> Optional[dict]:
     if user_id not in notice.get("target_user_ids", []):
         return None
     return notice
+
+
+def get_maintenance_status() -> dict:
+    """Returns the current maintenance mode status and custom message."""
+    data = _read_json(MAINTENANCE_FILE)
+    active = bool(data.get("active", False))
+    message = data.get(
+        "message",
+        "URQEN is currently undergoing scheduled platform maintenance. Existing experiments and data are safe, but training new experiments is temporarily paused. Please check back shortly."
+    )
+    updated_at = data.get("updated_at")
+    updated_by = data.get("updated_by")
+    return {
+        "active": active,
+        "message": message,
+        "updated_at": updated_at,
+        "updated_by": updated_by,
+    }
+
+
+def set_maintenance_status(active: bool, message: Optional[str] = None, updated_by: Optional[str] = None) -> dict:
+    """Updates the maintenance mode state in storage."""
+    import datetime
+    current = get_maintenance_status()
+    payload = {
+        "active": bool(active),
+        "message": (message or current["message"]).strip(),
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "updated_by": updated_by or "Founder",
+    }
+    _write_json(MAINTENANCE_FILE, payload)
+    return payload
 
 
 def purge_all_user_data(initiated_by_user_id: Optional[str] = None) -> dict:

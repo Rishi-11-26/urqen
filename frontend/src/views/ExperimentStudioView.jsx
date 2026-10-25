@@ -80,6 +80,7 @@ export default function ExperimentStudioView({
   onExperimentCompleted,
   isBenchmarking = false,
   setIsBenchmarking,
+  maintenanceMode = false,
 }) {
   const [selectedTarget, setSelectedTarget]   = useState(targetColumn || '');
   const [candidateTargets, setCandidateTargets] = useState([]);
@@ -835,11 +836,16 @@ export default function ExperimentStudioView({
           <button
             className="btn btn-primary btn-lg"
             onClick={handleLaunch}
-            disabled={running || !activeDataset}
-            style={{ flexShrink: 0 }}
+            disabled={running || !activeDataset || maintenanceMode}
+            style={{
+              flexShrink: 0,
+              cursor: maintenanceMode ? 'not-allowed' : undefined,
+              opacity: maintenanceMode ? 0.6 : 1,
+            }}
+            title={maintenanceMode ? 'Training is temporarily disabled while platform maintenance is active.' : undefined}
           >
             {running ? <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : <Play size={16} />}
-            {running ? 'Benchmarking…' : 'Launch Experiment'}
+            {running ? 'Benchmarking…' : maintenanceMode ? 'Maintenance Active' : 'Launch Experiment'}
           </button>
         </div>
       </div>

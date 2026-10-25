@@ -518,6 +518,14 @@ async def create_and_run_experiment(
     Submits a machine learning experimentation job in Guided or Expert Mode.
     Spawns background training and returns the tracked experiment object.
     """
+    from backend.storage import get_maintenance_status
+    m_status = get_maintenance_status()
+    if m_status.get("active") and not settings.is_admin(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=m_status.get("message", "Platform is currently in maintenance mode. Training is paused."),
+        )
+
     record = get_dataset_record(req.dataset_id, user.user_id)
     if not record:
         raise HTTPException(
