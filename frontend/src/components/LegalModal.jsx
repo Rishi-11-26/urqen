@@ -298,7 +298,7 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
           }}
         >
           <span style={{ fontSize: 11.5, color: 'var(--text-subtle)' }}>
-            Effective: October 2026 · URQEN · Pravia Technologies
+            Effective: 2026 · URQEN
           </span>
           <button className="btn btn-primary btn-sm" onClick={onClose}>
             Acknowledge &amp; Close
