@@ -13,6 +13,7 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -27,6 +28,7 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
   const handleSignup = async (e) => {
     e.preventDefault();
     setError(null);
+    if (!agreedToTerms) { setError('Please agree to the Terms of Service and Privacy Policy to create an account.'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     setLoading(true);
@@ -234,7 +236,7 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                   ].map((tab) => (
                     <button
                       key={tab.id}
-                      onClick={() => { setMode(tab.id); setError(null); setSuccess(null); }}
+                      onClick={() => { setMode(tab.id); setError(null); setSuccess(null); setAgreedToTerms(false); }}
                       style={{
                         flex: 1,
                         padding: '15px 0',
@@ -378,11 +380,30 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                     </div>
                   )}
 
+                  {/* Agree to Terms (signup only) */}
+                  {mode === 'signup' && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18 }}>
+                      <input
+                        type="checkbox"
+                        id="agree-terms"
+                        checked={agreedToTerms}
+                        onChange={(e) => setAgreedToTerms(e.target.checked)}
+                        style={{ marginTop: 3, accentColor: 'var(--primary)', cursor: 'pointer', flexShrink: 0 }}
+                      />
+                      <label htmlFor="agree-terms" style={{ fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.55, cursor: 'pointer' }}>
+                        I have read and agree to the{' '}
+                        <button type="button" onClick={() => onOpenLegal?.('terms')} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 600, padding: 0, fontSize: 12.5, textDecoration: 'underline' }}>Terms of Service</button>
+                        {' '}and{' '}
+                        <button type="button" onClick={() => onOpenLegal?.('privacy')} style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 600, padding: 0, fontSize: 12.5, textDecoration: 'underline' }}>Privacy Policy</button>
+                      </label>
+                    </div>
+                  )}
+
                   {/* Submit Button */}
                   <button
                     type="submit"
                     className="btn btn-primary"
-                    disabled={loading}
+                    disabled={loading || (mode === 'signup' && !agreedToTerms)}
                     style={{ width: '100%', justifyContent: 'center', gap: 10, fontSize: 14, padding: '13px 0' }}
                   >
                     {loading ? (

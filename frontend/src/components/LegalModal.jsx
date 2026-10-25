@@ -179,31 +179,52 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
-                <AlertTriangle size={15} color="var(--warning)" /> 2. Statistical Outputs & Professional Validation
+                <CheckCircle size={15} /> 2. Eligibility & Age Requirement
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-                All model benchmarks, evaluation metrics (e.g. Macro F1, $R^2$, ROC-AUC), cross-validation estimations, and feature importances are statistical outputs derived empirically from your supplied data sample. URQEN does not provide warranties that models are error-free or that historical cross-validation performance will replicate on out-of-distribution real-world data. Users are solely responsible for obtaining appropriate clinical, scientific, regulatory, or financial professional validation before deploying models for high-risk autonomous decision-making.
+                You must be at least <strong>13 years of age</strong> to use URQEN. If you are under 18, you must have the consent of a parent or legal guardian. By creating an account, you confirm that you meet these requirements and that all information you provide is accurate.
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
-                <CheckCircle size={15} /> 3. Prohibited Uses & Security Safeguards
+                <AlertTriangle size={15} color="var(--warning)" /> 3. Statistical Outputs & Professional Validation
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-                Users agree not to upload malicious scripts, corrupted executable payloads, unlawfully harvested personal identifiable information (PII), or confidential data in violation of third-party non-disclosure agreements. URQEN maintains rate limits and dataset size caps (up to 50 MB / 100,000 rows on standard tier) to protect system stability for all tenants.
+                All model benchmarks, evaluation metrics (e.g. Macro F1, R², ROC-AUC), cross-validation estimations, and feature importances are statistical outputs derived empirically from your supplied data sample. URQEN does not provide warranties that models are error-free or that historical cross-validation performance will replicate on out-of-distribution real-world data. Users are solely responsible for obtaining appropriate clinical, scientific, regulatory, or financial professional validation before deploying models for high-risk autonomous decision-making.
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
-                <CheckCircle size={15} /> 4. Cascading Erasure & Right to Purge
+                <CheckCircle size={15} /> 4. Prohibited Uses & Account Termination
+              </div>
+              <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+                Users agree not to upload malicious scripts, corrupted executable payloads, unlawfully harvested personal identifiable information (PII), or confidential data in violation of third-party non-disclosure agreements. URQEN maintains rate limits and dataset size caps (up to 50 MB / 100,000 rows on standard tier) to protect system stability for all tenants. URQEN reserves the right to suspend or permanently terminate accounts that violate these terms, upload harmful content, or abuse platform resources without prior notice.
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
+                <CheckCircle size={15} /> 5. Cascading Erasure & Right to Purge
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
                 Users may delete individual datasets, individual experiments, or all historical execution records at any time. When deletion is triggered, URQEN executes cascading cleanup removing physical files from disk partitions and database metadata records.
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
-                <CheckCircle size={15} /> 5. Service Availability & Modifications
+                <CheckCircle size={15} /> 6. Limitation of Liability
+              </div>
+              <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+                URQEN is provided "as-is" without warranties of any kind. To the maximum extent permitted by applicable law, URQEN's total liability to any user shall not exceed the total amount paid by that user in the 12 months preceding the claim, or ₹1,000 (Indian Rupees), whichever is greater. URQEN shall not be liable for any indirect, incidental, consequential, or punitive damages.
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
+                <CheckCircle size={15} /> 7. Service Availability & Modifications
+              </div>
+              <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+                URQEN operates under continuous refinement. Feature enhancements, additional algorithms, or maintenance updates may be deployed. Commercial subscriptions may introduce higher storage and compute allowances while preserving free tier functionality. We will endeavour to notify users of significant changes via the platform banner or registered email.
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
+                <CheckCircle size={15} /> 8. Governing Law & Jurisdiction
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 0 }}>
-                URQEN operates under continuous refinement. Feature enhancements, additional algorithms, or maintenance updates may be deployed. Commercial subscriptions may introduce higher storage and compute allowances while preserving free tier functionality.
+                These Terms of Service are governed by and construed in accordance with the laws of India. Any disputes arising from or relating to these terms shall be subject to the exclusive jurisdiction of the courts of Hyderabad, Telangana, India.
               </p>
             </div>
           ) : (
@@ -238,7 +259,7 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
                 <Lock size={15} /> 2. Multi-Tenant Isolation & Storage Architecture
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-                Customer records are associated with their account user identifiers. Database records may be protected by PostgreSQL Row Level Security (RLS) policies enforcing <code>auth.uid() = user_id</code>, depending on deployment configuration. Uploaded files and generated artifacts are stored by the configured backend.
+                All user data records are strictly isolated by your unique account identifier. Database records are protected by PostgreSQL Row Level Security (RLS) policies enforcing <code>auth.uid() = user_id</code> on every query — no user can access another user's data. Uploaded files and generated artifacts are stored in paths scoped to your account and are inaccessible to other users.
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--success)', fontWeight: 700 }}>
@@ -259,7 +280,7 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
                 <CheckCircle size={15} /> 5. Data Subject Rights (GDPR / CCPA / DPDP)
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 0 }}>
-                You have the full right to view, export, or permanently erase all stored records. Initiating dataset or experiment deletion removes files from server disks immediately. For complete account deletion or data subject inquiries, contact your service administrator.
+                You have the full right to view, export, or permanently erase all stored records. Initiating dataset or experiment deletion removes files from server disks immediately. For complete account deletion or data subject inquiries, contact the founder team at <code>previatechnologies0@gmail.com</code>.
               </p>
             </div>
           )}
@@ -277,7 +298,7 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
           }}
         >
           <span style={{ fontSize: 11.5, color: 'var(--text-subtle)' }}>
-            Effective: {new Date().getFullYear()} · URQEN
+            Effective: October 2026 · URQEN · Pravia Technologies
           </span>
           <button className="btn btn-primary btn-sm" onClick={onClose}>
             Acknowledge &amp; Close
