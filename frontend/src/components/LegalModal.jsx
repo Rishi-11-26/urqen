@@ -210,7 +210,7 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
                 <CheckCircle size={15} /> 6. Limitation of Liability
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-                URQEN is provided "as-is" without warranties of any kind. To the maximum extent permitted by applicable law, URQEN's total liability to any user shall not exceed the total amount paid by that user in the 12 months preceding the claim, or ₹1,000 (Indian Rupees), whichever is greater. URQEN shall not be liable for any indirect, incidental, consequential, or punitive damages.
+                URQEN is provided on an "as-is" and "as-available" basis without warranties of any kind. To the maximum extent permitted by applicable law, URQEN and its operators shall not be liable for any indirect, incidental, special, or consequential damages, or any loss of profits, data, or business opportunities resulting from your use of the platform.
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
