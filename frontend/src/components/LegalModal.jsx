@@ -280,7 +280,7 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
                 <CheckCircle size={15} /> 5. Data Subject Rights (GDPR / CCPA / DPDP)
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 0 }}>
-                You have the full right to view, export, or permanently erase all stored records. Initiating dataset or experiment deletion removes files from server disks immediately. For complete account deletion or data subject inquiries, contact the founder team at <code>previatechnologies0@gmail.com</code>.
+                You have the full right to view, export, or permanently erase all stored records. Initiating dataset or experiment deletion removes files from server disks immediately.
               </p>
             </div>
           )}
