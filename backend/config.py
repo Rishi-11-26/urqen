@@ -50,7 +50,10 @@ class Settings(BaseModel):
             return False
         admins = [e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()]
         if not admins:
-            # If no admin emails are configured yet, founder/developer has full admin access
+            # When Supabase is configured (cloud/production), fail closed unless explicitly allowlisted
+            if self.SUPABASE_URL:
+                return False
+            # In local standalone development without Supabase, developer has local admin access
             return True
         return email.lower() in admins
 

@@ -5,8 +5,9 @@ Experiment execution, benchmarking, historical tracking, and quota monitoring.
 """
 
 import uuid
+import hashlib
 import pathlib
-import traceback
+import json
 import numpy as np
 import pandas as pd
 from typing import List, Optional
@@ -37,11 +38,19 @@ from previa.task_detection.detector import detect_target_and_task
 from previa.feature_intelligence.analyzer import analyze_features
 from previa.preprocessing.recommender import generate_recommendations
 from previa.preprocessing.pipeline_builder import build_pipeline
-from previa.models.registry import get_available_models, create_model_instance, is_xgboost_available
+from previa.models.registry import get_available_models, is_xgboost_available
 from previa.benchmarking.benchmarker import run_benchmarks
-from previa.export.model_bundle import save_model_bundle, PreviaModelBundle
+from previa.benchmarking.evaluation import (
+    build_split_consistency_report,
+    verify_holdout_metrics,
+)
+from previa.export.model_bundle import save_model_bundle
 from previa.export.report_generator import generate_html_report, generate_markdown_report
-from previa.experiments.tracker import create_experiment_manifest, serialize_manifest_to_json
+from previa.experiments.tracker import (
+    compute_dataset_fingerprint,
+    create_experiment_manifest,
+    serialize_manifest_to_json,
+)
 from previa.explainability.explainer import compute_feature_importance
 from backend.supabase_client import sync_experiment, delete_experiment_record
 
@@ -96,211 +105,393 @@ def _run_experiment_background(
             X_raw = df.drop(columns=[target])
 
         y_raw = df_filtered[target]
-
-        valid_idx = y_raw.dropna().index
-        X_clean = X_raw.loc[valid_idx]
-        y_clean = y_raw.loc[valid_idx]
-
-        # Target encoding
         if "classification" in task:
+            valid_idx = y_raw.dropna().index
+            y_clean = y_raw.loc[valid_idx].astype(str)
             from sklearn.preprocessing import LabelEncoder
-            le = LabelEncoder()
-            y_encoded = le.fit_transform(y_clean.astype(str))
-            class_labels = [str(c) for c in le.classes_]
+            label_encoder = LabelEncoder()
+            y_encoded = label_encoder.fit_transform(y_clean)
+            class_labels = [str(label) for label in label_encoder.classes_]
         else:
-            # For regression, ensure numeric float values with fallback for messy formats
-            try:
-                y_encoded = pd.to_numeric(y_clean, errors="coerce").fillna(0.0).values.astype(float)
-            except Exception:
-                y_encoded = y_clean.values.astype(float)
+            numeric_target = pd.to_numeric(y_raw, errors="coerce")
+            valid_idx = numeric_target.dropna().index
+            y_encoded = numeric_target.loc[valid_idx].to_numpy(dtype=float)
             class_labels = None
+        X_clean = X_raw.loc[valid_idx]
+        if len(X_clean) == 0:
+            raise ValueError("No rows with valid target values are available for evaluation.")
+        y_encoded = np.asarray(y_encoded)
 
-        # 3. Preprocessing Recommendations & Pipeline Construction
+        # Build the same preprocessing blueprint for holdout and fold-local clones.
         f_analysis = analyze_features(df_filtered, target_column=target)
         recs = generate_recommendations(f_analysis, target_column=target)
-
+        rec_by_feature = {rec["feature"]: rec for rec in recs}
         scaler_type = req_data.get("scaler_type", "standard")
         overrides = req_data.get("user_overrides") or {}
-
         pipeline, num_feats, cat_feats, dropped_feats = build_pipeline(
-            recs,
-            user_overrides=overrides,
-            scaler_type=scaler_type,
+            recs, user_overrides=overrides, scaler_type=scaler_type
         )
 
-        # Train / Test split on RAW data to eliminate preprocessing data leakage
-        _req_test_size = req_data.get("test_size", 0.20)
-        split_ratio = _req_test_size if len(y_encoded) >= 20 else 0.3
-        from sklearn.model_selection import train_test_split
-        stratify = (
-            y_encoded
-            if ("classification" in task and len(np.unique(y_encoded)) > 1 and np.min(np.bincount(y_encoded)) >= 2)
-            else None
-        )
+        candidate_features = list(X_raw.columns)
+        excluded_columns = [{"column": target, "reason": "Target column; predicted as the response."}]
+        user_selected = req_data.get("feature_columns")
+        user_selected = set(user_selected) if user_selected else set(df.columns) - {target}
+        for column in df.columns:
+            if column == target:
+                continue
+            if column not in user_selected:
+                excluded_columns.append({
+                    "column": column,
+                    "reason": "Excluded because it was not selected in the experiment feature list.",
+                })
+            elif column in dropped_feats:
+                recommendation = rec_by_feature.get(column, {})
+                excluded_columns.append({
+                    "column": column,
+                    "reason": recommendation.get("reason") or "Excluded by the preprocessing recommendation.",
+                })
+            elif column not in num_feats and column not in cat_feats:
+                excluded_columns.append({
+                    "column": column,
+                    "reason": "Excluded because no supported preprocessing transformer handles this feature type.",
+                })
+        processed_features = [*num_feats, *cat_feats]
 
-        if len(y_encoded) >= 10:
-            try:
-                X_tr_raw, X_te_raw, y_tr, y_te = train_test_split(
-                    X_clean, y_encoded, test_size=split_ratio, random_state=42, stratify=stratify
-                )
-            except Exception:
-                X_tr_raw, X_te_raw, y_tr, y_te = train_test_split(
-                    X_clean, y_encoded, test_size=split_ratio, random_state=42
-                )
-        else:
-            X_tr_raw, X_te_raw, y_tr, y_te = X_clean, X_clean, y_encoded, y_encoded
-
-        # Leakage-safe fit strictly on training partition
-        pipeline.fit(X_tr_raw, y_tr)
-        X_tr = pipeline.transform(X_tr_raw)
-        X_te = pipeline.transform(X_te_raw)
-        X_transformed = pipeline.transform(X_clean)
-
-        # 4. Determine models and hyper-parameters
         cv_folds = req_data.get("cv_folds", 10)
-        test_size = req_data.get("test_size", 0.20)
+        requested_test_size = req_data.get("test_size", 0.20)
+        effective_test_size = requested_test_size if len(y_encoded) >= 20 else 0.30
         model_hyperparams = req_data.get("hyperparameters") or {}
-
         chosen_models = req_data.get("models")
         if not chosen_models:
-            avail = get_available_models(task, include_optional=False)
-            chosen_models = [m["name"] for m in avail]
+            chosen_models = [m["name"] for m in get_available_models(task, include_optional=False)]
             if is_xgboost_available() and "XGBoost" not in chosen_models:
                 chosen_models.append("XGBoost")
+        row_positions = {index: position for position, index in enumerate(df.index)}
+        sample_ids = [f"row-{row_positions[index]}" for index in X_clean.index]
 
-        # 5. Execute Benchmarks
         bench_res = run_benchmarks(
-            X_transformed,
+            X_clean,
             y_encoded,
             task_type=task,
             models_to_evaluate=chosen_models,
             cv_folds=cv_folds,
-            test_size=test_size,
+            test_size=effective_test_size,
             model_hyperparams=model_hyperparams,
+            preprocessor=pipeline,
+            sample_ids=sample_ids,
+            class_labels=class_labels,
+            return_fitted_estimators=True,
         )
+        split_indices = bench_res.pop("_split_indices")
+        fitted_estimators = bench_res.pop("_fitted_estimators")
+        evaluation_artifacts = bench_res.pop("evaluation_artifacts")
+        models_by_name = {model["model"]: model for model in bench_res["models"]}
+        for evaluation in evaluation_artifacts:
+            model_result = models_by_name.get(evaluation["model"], {})
+            holdout = evaluation.get("holdout") or {}
+            if evaluation["status"] == "success":
+                evaluation["metric_verification"] = verify_holdout_metrics(
+                    actual=holdout.get("actual"),
+                    predicted=holdout.get("predicted"),
+                    task_type=task,
+                    reported_metrics=model_result,
+                    class_labels=holdout.get("class_labels"),
+                )
+                holdout["metrics"]["class_labels"] = holdout.get("class_labels", [])
+            else:
+                evaluation["metric_verification"] = {}
+        split_configuration = bench_res["split_configuration"]
+        split_consistency = build_split_consistency_report(evaluation_artifacts, split_configuration)
 
-        # 6. Fit Winning Model on Holdout Split for Artifact Serialization
-        best_name = bench_res["best_model"]
-        best_kwargs = model_hyperparams.get(best_name, {})
-        fitted_model = create_model_instance(best_name, task, random_state=42, **best_kwargs)
-        fitted_model.fit(X_tr, y_tr)
+        warnings = []
+        if split_configuration["strategy"] == "in_sample_fallback_too_few_rows":
+            warnings.append("Fewer than 10 valid rows: training and holdout rows overlap; metrics are not independent.")
+        for evaluation in evaluation_artifacts:
+            if evaluation["status"] != "success":
+                warnings.append(f"{evaluation['model']} evaluation failed: {evaluation.get('error_message')}")
+            elif evaluation.get("cross_validation", {}).get("error_message"):
+                warnings.append(f"{evaluation['model']} cross-validation is unavailable.")
+            elif "classification" in task and evaluation["holdout"].get("probabilities") is None:
+                warnings.append(f"{evaluation['model']} does not provide holdout class probabilities.")
+            for metric, evidence in evaluation.get("metric_verification", {}).items():
+                if isinstance(evidence, dict) and evidence.get("status") == "mismatch":
+                    warnings.append(f"{evaluation['model']} reported {metric} differs from independent recalculation.")
+        if split_consistency["status"] != "consistent":
+            warnings.extend(split_consistency["missing_or_inconsistent_artifacts"])
 
-        # 7. Generate Feature Importance
-        try:
-            feat_names = [n.split("__")[-1] for n in pipeline.get_feature_names_out()]
-        except Exception:
-            feat_names = [f"feature_{i}" for i in range(X_transformed.shape[1])]
+        best_name = bench_res.get("best_model")
+        best_estimator = fitted_estimators.get(best_name)
+        if best_estimator is None:
+            best_name = None
+            bench_res["best_model"] = None
+            feat_importance = {}
+            feat_names = []
+            fitted_pipeline = None
+            fitted_model = None
+            X_holdout_transformed = None
+            y_holdout = None
+        else:
+            fitted_pipeline = best_estimator.named_steps["preprocessor"]
+            fitted_model = best_estimator.named_steps["model"]
+            train_indices = np.asarray(split_indices["train"], dtype=int)
+            holdout_indices = np.asarray(split_indices["holdout"], dtype=int)
+            X_holdout_raw = X_clean.iloc[holdout_indices]
+            y_holdout = y_encoded[holdout_indices]
+            X_holdout_transformed = fitted_pipeline.transform(X_holdout_raw)
+            try:
+                feat_names = [name.split("__")[-1] for name in fitted_pipeline.get_feature_names_out()]
+            except (AttributeError, ValueError):
+                feat_names = [f"feature_{index}" for index in range(X_holdout_transformed.shape[1])]
+            feat_importance = compute_feature_importance(
+                model=fitted_model,
+                X=X_holdout_transformed,
+                y=y_holdout,
+                feature_names=feat_names,
+                task_type=task,
+            )
 
-        feat_importance = compute_feature_importance(
-            model=fitted_model,
-            X=X_te,
-            y=y_te,
-            feature_names=feat_names,
-            task_type=task,
-        )
-
-        # 8. Save Artifacts (Bundle, Manifest, Reports)
         exp_dir = settings.ARTIFACTS_DIR / experiment_id
         exp_dir.mkdir(parents=True, exist_ok=True)
+        artifact_paths = {}
+        expected_features = processed_features
+        if best_estimator is not None:
+            bundle_path = exp_dir / "model_bundle.joblib"
+            bundle_metadata = {
+                "experiment_id": experiment_id,
+                "target_column": target,
+                "task_type": task,
+                "expected_features": expected_features,
+                "feature_names_out": feat_names,
+                "classes": class_labels if "classification" in task else None,
+                "metrics": bench_res,
+            }
+            save_model_bundle(
+                fitted_pipeline, fitted_model, bundle_metadata, str(bundle_path)
+            )
+            artifact_paths["model_bundle"] = str(bundle_path)
 
-        bundle_path = exp_dir / "model_bundle.joblib"
-        bundle_metadata = {
-            "experiment_id": experiment_id,
+        preprocessing_steps = []
+        if num_feats:
+            preprocessing_steps.extend([
+                {"columns": num_feats, "transformers": ["median imputation"]},
+            ])
+            if scaler_type.lower() != "none":
+                preprocessing_steps[-1]["transformers"].append(f"{scaler_type} scaling")
+        if cat_feats:
+            preprocessing_steps.append({
+                "columns": cat_feats,
+                "transformers": ["most-frequent imputation", "one-hot encoding"],
+            })
+        if not preprocessing_steps:
+            preprocessing_steps.append({
+                "columns": [],
+                "transformers": [],
+                "status": "No columns passed through a preprocessing transformer.",
+            })
+        final_feature_count = (
+            int(X_holdout_transformed.shape[1]) if X_holdout_transformed is not None else None
+        )
+        preprocessing_audit = {
+            "original_dataset_columns": [
+                {"column": str(column), "dtype": str(dtype)}
+                for column, dtype in df.dtypes.items()
+            ],
             "target_column": target,
-            "task_type": task,
-            "expected_features": [c for c in df.columns if c != target],
-            "feature_names_out": feat_names,
-            "classes": class_labels if "classification" in task else None,
-            "metrics": bench_res,
+            "candidate_features": candidate_features,
+            "numeric_columns_processed": num_feats,
+            "categorical_columns_processed": cat_feats,
+            "excluded_columns": excluded_columns,
+            "preprocessing_steps": preprocessing_steps,
+            "feature_selection_or_transformation": (
+                "One-hot encoding expands categorical columns; numeric columns are imputed and scaled."
+                if num_feats or cat_feats else "No preprocessing transformations were applied."
+            ),
+            "final_transformed_feature_count": final_feature_count,
+            "fit_scope": "Training partition for holdout; separately cloned and fitted within each CV training fold.",
         }
-        save_model_bundle(pipeline, fitted_model, bundle_metadata, str(bundle_path))
+        split_configuration["training_sample_count"] = int(len(split_indices["train"]))
+        split_configuration["holdout_sample_count"] = int(len(split_indices["holdout"]))
+        dataset_fingerprint = compute_dataset_fingerprint(df)
 
-        # Manifest
-        preprocessing_config = {
-            "scaler": scaler_type,
-            "cv_folds": cv_folds,
-            "test_size": test_size,
+        metric_verification = {
+            item["model"]: item.get("metric_verification", {})
+            for item in evaluation_artifacts
         }
+        bench_res["evaluation_summary"] = {
+            "split_consistency": split_consistency,
+            "metric_verification": metric_verification,
+            "warnings": warnings,
+        }
+        bench_res["feature_importance"] = feat_importance
+        bench_res["expected_features"] = expected_features
+        bench_res["feature_names"] = feat_names
+        winner_evaluation = next(
+            (item for item in evaluation_artifacts if item.get("model") == best_name),
+            None,
+        )
+        bench_res["confusion_matrix"] = (
+            winner_evaluation.get("holdout", {}).get("confusion_matrix")
+            if winner_evaluation and "classification" in task
+            else None
+        )
+
+        evaluation_export = {
+            "format_version": 1,
+            "experiment": {
+                "experiment_id": experiment_id,
+                "dataset_id": req_data.get("dataset_id"),
+                "dataset_name": dataset_name,
+                "dataset_fingerprint_sha256": dataset_fingerprint,
+                "task_type": task,
+                "target_column": target,
+                "primary_metric": bench_res["primary_metric"],
+                "primary_metric_definition": (
+                    "Macro-F1" if bench_res["primary_metric"] == "f1"
+                    else "R-squared" if bench_res["primary_metric"] == "r2"
+                    else bench_res["primary_metric"]
+                ),
+                "model_parameters": model_hyperparams,
+                "preprocessing_configuration": {
+                    "scaler": scaler_type,
+                    "user_overrides": overrides,
+                    "cv_folds_requested": cv_folds,
+                },
+                "random_seed": 42,
+                "split_configuration": split_configuration,
+                "training_sample_count": int(len(split_indices["train"])),
+                "holdout_sample_count": int(len(split_indices["holdout"])),
+                "training_status": "completed",
+                "evaluation_status": "completed" if best_name else "completed_without_successful_models",
+            },
+            "dataset_schema": preprocessing_audit["original_dataset_columns"],
+            "preprocessing_audit": preprocessing_audit,
+            "data_artifact_types": {
+                "original_input_data": "Source dataset; not included in this export.",
+                "preprocessed_dataset_csv": "Human-readable imputed table; not a holdout-only dataset or transformed model matrix.",
+                "holdout_predictions": "Actual stored predictions with safe row IDs; does not include raw feature values.",
+                "cross_validation": "Fold scores computed on the training partition with fold-local preprocessing.",
+            },
+            "model_comparison": bench_res["models"],
+            "models": evaluation_artifacts,
+            "metric_verification": metric_verification,
+            "split_consistency": split_consistency,
+            "warnings": warnings,
+        }
+        evaluation_path = exp_dir / "evaluation.json"
+        evaluation_path.write_text(
+            serialize_manifest_to_json(evaluation_export), encoding="utf-8"
+        )
+        artifact_paths["evaluation"] = str(evaluation_path)
+        sample_directory = exp_dir / "evaluation_samples"
+        sample_directory.mkdir(exist_ok=True)
+        for evaluation in evaluation_artifacts:
+            holdout = evaluation.get("holdout")
+            if not holdout:
+                continue
+            sample_key = hashlib.sha256(
+                evaluation["model"].encode("utf-8")
+            ).hexdigest()[:16]
+            sample_path = sample_directory / f"{sample_key}.jsonl"
+            with sample_path.open("w", encoding="utf-8") as sample_file:
+                for index, sample_id in enumerate(holdout["sample_ids"]):
+                    sample = {
+                        "sample_id": sample_id,
+                        "actual": holdout["actual"][index],
+                        "predicted": holdout["predicted"][index],
+                        "probabilities": (
+                            holdout["probabilities"][index]
+                            if holdout.get("probabilities") is not None else None
+                        ),
+                    }
+                    sample_file.write(json.dumps(sample, separators=(",", ":")) + "\n")
+            artifact_paths[f"evaluation_samples_{sample_key}"] = str(sample_path)
+
         manifest = create_experiment_manifest(
             df=df,
             target_column=target,
             task_type=task,
-            preprocessing_config=preprocessing_config,
+            preprocessing_config={
+                "scaler": scaler_type,
+                "cv_folds": cv_folds,
+                "test_size": effective_test_size,
+                **preprocessing_audit,
+            },
             benchmarking_results=bench_res,
             explainability_summary=feat_importance,
             dataset_name=dataset_name,
             random_seed=42,
         )
-        manifest["experiment_id"] = experiment_id
+        report_evaluations = []
+        for evaluation in evaluation_artifacts:
+            holdout = evaluation.get("holdout") or {}
+            report_holdout = None
+            if holdout:
+                report_holdout = {
+                    "sample_count": holdout.get("sample_count"),
+                    "metrics": holdout.get("metrics"),
+                    "class_labels": holdout.get("class_labels"),
+                    "confusion_matrix": holdout.get("confusion_matrix"),
+                }
+                if holdout.get("confusion_matrix") is None:
+                    report_holdout["example_pairs"] = [
+                        {
+                            "sample_id": holdout["sample_ids"][index],
+                            "actual": holdout["actual"][index],
+                            "predicted": holdout["predicted"][index],
+                        }
+                        for index in range(min(10, holdout.get("sample_count", 0)))
+                    ]
+            report_evaluations.append({
+                "model": evaluation["model"],
+                "status": evaluation["status"],
+                "error_message": evaluation.get("error_message"),
+                "holdout": report_holdout,
+                "cross_validation": evaluation.get("cross_validation"),
+                "metric_verification": evaluation.get("metric_verification"),
+            })
+        manifest.update({
+            "experiment_id": experiment_id,
+            "experiment_metadata": evaluation_export["experiment"],
+            "evaluation_summary": {
+                "split_consistency": split_consistency,
+                "models": report_evaluations,
+                "warnings": warnings,
+            },
+        })
         manifest_path = exp_dir / "manifest.json"
-        with open(manifest_path, "w", encoding="utf-8") as mf:
-            mf.write(serialize_manifest_to_json(manifest))
-
-        # Reports
-        html_report = generate_html_report(manifest)
+        manifest_path.write_text(serialize_manifest_to_json(manifest), encoding="utf-8")
         html_path = exp_dir / "report.html"
-        with open(html_path, "w", encoding="utf-8") as hf:
-            hf.write(html_report)
-
-        md_report = generate_markdown_report(manifest)
+        html_path.write_text(generate_html_report(manifest), encoding="utf-8")
         md_path = exp_dir / "report.md"
-        with open(md_path, "w", encoding="utf-8") as mf:
-            mf.write(md_report)
-
-        # Preprocessed Clean Dataset Export (Preserves exact tabular schema and human-readable format)
-        prep_path = exp_dir / "preprocessed_dataset.csv"
-        try:
-            from previa.export.exporter import create_clean_preprocessed_dataframe
-            clean_prep_df = create_clean_preprocessed_dataframe(
-                df=df_filtered,
-                target_column=target,
-                numeric_features=num_feats,
-                categorical_features=cat_feats,
-                dropped_features=dropped_feats,
-                train_indices=X_tr_raw.index,
-            )
-            clean_prep_df.to_csv(prep_path, index=False)
-        except Exception:
-            try:
-                df_filtered.to_csv(prep_path, index=False)
-            except Exception:
-                pass
-
-        artifact_paths = {
-            "model_bundle": str(bundle_path),
+        md_path.write_text(generate_markdown_report(manifest), encoding="utf-8")
+        artifact_paths.update({
             "manifest": str(manifest_path),
             "html_report": str(html_path),
             "markdown_report": str(md_path),
-            "preprocessed_data": str(prep_path),
-        }
+        })
 
-        # 9. Update Database Record
-        bench_res["feature_importance"] = feat_importance
-        bench_res["expected_features"] = [c for c in df.columns if c != target]
-        bench_res["feature_names"] = feat_names
-
-        # Compute confusion matrix for the winner (classification only)
-        if "classification" in task:
-            try:
-                from sklearn.metrics import confusion_matrix as sk_cm
-                y_winner_pred = fitted_model.predict(X_te)
-                cm = sk_cm(y_te, y_winner_pred)
-                bench_res["confusion_matrix"] = cm.tolist()
-            except Exception:
-                bench_res["confusion_matrix"] = None
-        else:
-            bench_res["confusion_matrix"] = None
+        prep_path = exp_dir / "preprocessed_dataset.csv"
+        from previa.export.exporter import create_clean_preprocessed_dataframe
+        clean_prep_df = create_clean_preprocessed_dataframe(
+            df=df_filtered.loc[valid_idx],
+            target_column=target,
+            numeric_features=num_feats,
+            categorical_features=cat_feats,
+            dropped_features=dropped_feats,
+            train_indices=X_clean.iloc[split_indices["train"]].index,
+        )
+        clean_prep_df.to_csv(prep_path, index=False)
+        artifact_paths["preprocessed_data"] = str(prep_path)
 
         update_experiment_results(
             experiment_id=experiment_id,
             user_id=user_id,
             results=bench_res,
-            best_model=best_name,
+            best_model=best_name or "",
             winner_explanation=bench_res["winner_explanation"],
             artifact_paths=artifact_paths,
         )
 
-        # Sync completed experiment to Supabase (best-effort)
         try:
             from backend.storage import get_experiment_record
             final_record = get_experiment_record(experiment_id, user_id)
@@ -310,8 +501,11 @@ def _run_experiment_background(
             pass
 
     except Exception as e:
-        err_msg = f"{str(e)}\n{traceback.format_exc()}"
-        update_experiment_error(experiment_id, user_id, err_msg)
+        update_experiment_error(
+            experiment_id,
+            user_id,
+            f"Experiment failed ({type(e).__name__}); evaluation artifacts may be unavailable.",
+        )
 
 
 @router.post("/benchmark", response_model=ExperimentResponse)
@@ -435,8 +629,13 @@ async def get_experiment(
                 training_time_seconds=m.get("training_time_seconds", 0.0),
                 cv_mean=m.get("cv_mean"),
                 cv_std=m.get("cv_std"),
+                cv_folds=m.get("cv_folds"),
+                cv_fold_scores=m.get("cv_fold_scores"),
+                holdout_sample_count=exp.get("results", {}).get("holdout_sample_count"),
                 accuracy=m.get("accuracy"),
                 f1=m.get("f1"),
+                f1_macro=m.get("f1_macro"),
+                f1_weighted=m.get("f1_weighted"),
                 precision=m.get("precision"),
                 recall=m.get("recall"),
                 sensitivity=m.get("sensitivity"),
@@ -464,8 +663,13 @@ async def get_experiment(
                     "training_time_seconds": m.get("training_time_seconds", 0.0),
                     "cv_mean": m.get("cv_mean"),
                     "cv_std": m.get("cv_std"),
+                    "cv_folds": m.get("cv_folds"),
+                    "cv_fold_scores": m.get("cv_fold_scores"),
+                    "holdout_sample_count": raw_results.get("holdout_sample_count"),
                     "accuracy": m.get("accuracy"),
                     "f1": m.get("f1"),
+                    "f1_macro": m.get("f1_macro"),
+                    "f1_weighted": m.get("f1_weighted"),
                     "precision": m.get("precision"),
                     "recall": m.get("recall"),
                     "sensitivity": m.get("sensitivity"),
@@ -489,6 +693,8 @@ async def get_experiment(
             "n_features": raw_results.get("n_features"),
             "cv_folds": raw_results.get("cv_folds"),
             "test_size": raw_results.get("test_size"),
+            "evaluation_summary": raw_results.get("evaluation_summary"),
+            "evaluation_available": bool(exp.get("artifact_paths", {}).get("evaluation")),
         }
 
     return ExperimentResponse(

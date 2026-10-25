@@ -1,9 +1,9 @@
-# PREVIA — Future Scope & Multimodal Architecture Roadmap
+# URQEN — Future Scope & Multimodal Architecture Roadmap
 
 > **Status:** Post-v1.0.0 Roadmap Document  
 > **Scope for v1.0.0:** Tabular Machine Learning & Data Intelligence Only.
 
-This document preserves the architectural designs, prototypes, and specifications for expanding PREVIA beyond structured tabular data in subsequent releases (v1.1+).
+This document preserves the architectural designs, prototypes, and specifications for expanding URQEN beyond structured tabular data in subsequent releases (v1.1+).
 
 ---
 

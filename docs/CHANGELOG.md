@@ -1,4 +1,4 @@
-# Previa Changelog
+# URQEN Changelog
 
 ## [1.0.0] — Official Final Release
 
@@ -40,7 +40,7 @@
   - Reproducible benchmark across Binary, Multiclass, and Regression datasets documented in `docs/BENCHMARKS.md`.
 - **Comprehensive Documentation Suite**:
   - `docs/ARCHITECTURE.md`
-  - `docs/PREVIA_DEEP_DIVE.md`
+  - `docs/URQEN_DEEP_DIVE.md`
   - `docs/BENCHMARKS.md`
   - `docs/CHANGELOG.md`
 

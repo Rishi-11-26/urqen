@@ -36,10 +36,9 @@ def compute_dataset_fingerprint(df: pd.DataFrame) -> str:
     hasher.update(str(df.shape).encode("utf-8"))
     hasher.update(",".join(df.columns.astype(str)).encode("utf-8"))
     hasher.update(",".join(str(t) for t in df.dtypes).encode("utf-8"))
-    # Hash small sample summary for content uniqueness
-    sample_bytes = df.head(5).to_csv(index=False).encode("utf-8")
-    hasher.update(sample_bytes)
-    return hasher.hexdigest()[:16]
+    # Hash the complete frame without persisting any cell values.
+    hasher.update(pd.util.hash_pandas_object(df, index=True).values.tobytes())
+    return hasher.hexdigest()
 
 
 def create_experiment_manifest(
@@ -102,9 +101,16 @@ def create_experiment_manifest(
                     "status": m.get("status", "success"),
                     "family": m.get("family"),
                     "training_time_seconds": m.get("training_time_seconds"),
+                    "evaluation_type": "holdout",
+                    "holdout_sample_count": benchmarking_results.get("holdout_sample_count"),
                     "primary_score": m.get(benchmarking_results.get("primary_metric")),
                     "cv_mean": m.get("cv_mean"),
                     "cv_std": m.get("cv_std"),
+                    "cv_fold_scores": m.get("cv_fold_scores", []),
+                    "cv_metric": (
+                        "macro_f1" if "classification" in benchmarking_results.get("task_type", "")
+                        else "r2"
+                    ),
                 }
                 for m in benchmarking_results.get("models", [])
             ],

@@ -1,8 +1,8 @@
-# Previa Competitive Benchmark Report
+# URQEN Competitive Benchmark Report
 
 ## 1. Executive Summary
 
-This document presents the reproducible benchmark results comparing Previa's automated, leakage-safe pipeline and baseline models against a Naive Baseline (dummy classifier/regressor).
+This document presents benchmark results comparing URQEN's pipeline and baseline models against a Naive Baseline (dummy classifier/regressor).
 
 The evaluation protocol measures:
 1. **Predictive Performance**: Hold-out test evaluation score.
@@ -38,7 +38,7 @@ The benchmark is executed locally using the reproducible benchmark suite (`previ
 
 ## 4. Empirical Results
 
-| Task | Metric | Naive Dummy Baseline | Previa Winner Baseline | Previa Winning Model | Previa Runtime | Quality Findings Flagged |
+| Task | Metric | Naive Dummy Baseline | URQEN Winner Baseline | URQEN Winning Model | URQEN Runtime | Quality Findings Flagged |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Binary Classification** | $F_1$ Score | 0.0000 | **0.8718** | Logistic Regression | ~0.42s | 3 (Missingness, Skew, Outliers) |
 | **Multiclass Classification** | $F_1$ Score | 0.3871 | **0.5833** | Random Forest | ~0.48s | 2 (Class Imbalance, Regions) |
@@ -48,7 +48,7 @@ The benchmark is executed locally using the reproducible benchmark suite (`previ
 
 ## 5. Comparative Evaluation
 
-| Feature / Dimension | Naive Baseline | Previa Workbench |
+| Feature / Dimension | Naive Baseline | URQEN Workbench |
 | :--- | :---: | :---: |
 | **Data Leakage Safety** | ❌ Fails (Requires manual prep) | ✅ Guaranteed (`ColumnTransformer` on train split) |
 | **Missing Value Handling** | ❌ None (Errors on raw data) | ✅ Robust Median / Mode Imputation |
@@ -62,6 +62,6 @@ The benchmark is executed locally using the reproducible benchmark suite (`previ
 
 ## 6. Honest Limitations & Boundary
 
-1. Previa does NOT perform exhaustive hyperparameter Bayesian optimization; it focuses on reliable pre-model auditing and transparent baseline evaluation.
+1. URQEN does NOT perform exhaustive hyperparameter Bayesian optimization; it focuses on pre-model auditing and baseline evaluation.
 2. On massive datasets (>1M rows), tree ensembles and cross-validation will take longer; runtime caching in Streamlit mitigates redundant re-evaluations.
-3. Previa is not a replacement for domain expertise: flagged outliers and high-cardinality features require user confirmation before final deployment.
+3. URQEN is not a replacement for domain expertise: flagged outliers and high-cardinality features require user confirmation before final deployment.

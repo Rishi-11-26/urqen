@@ -41,18 +41,41 @@ app.include_router(account.router)
 
 
 
+from fastapi.responses import JSONResponse
+from fastapi import status
+
 @app.get("/api/health", tags=["Health"])
 async def health_check():
     """Health and readiness probe."""
-    return {
-        "status": "healthy",
-        "service": settings.APP_NAME,
-        "version": settings.VERSION,
-        "storage": {
-            "datasets_dir": str(settings.DATA_DIR),
-            "artifacts_dir": str(settings.ARTIFACTS_DIR),
-        }
-    }
+    storage_healthy = True
+    storage_details = {}
+    for name, directory in (
+        ("datasets_dir", settings.DATA_DIR),
+        ("artifacts_dir", settings.ARTIFACTS_DIR),
+    ):
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            test_file = directory / ".health_probe"
+            test_file.write_text("probe", encoding="utf-8")
+            test_file.unlink(missing_ok=True)
+            storage_details[name] = {"path": str(directory), "writable": True}
+        except Exception as exc:
+            storage_healthy = False
+            storage_details[name] = {"path": str(directory), "writable": False, "error": str(exc)}
+
+    auth_mode = "supabase" if bool(settings.SUPABASE_URL and settings.SUPABASE_KEY) else "local_standalone"
+    overall_status = "healthy" if storage_healthy else "degraded"
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if storage_healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "status": overall_status,
+            "service": settings.APP_NAME,
+            "version": settings.VERSION,
+            "auth_mode": auth_mode,
+            "storage": storage_details,
+        },
+    )
 
 
 import pathlib

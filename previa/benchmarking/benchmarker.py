@@ -23,10 +23,13 @@ Features:
 import time
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.base import clone
+from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score, train_test_split
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score, roc_auc_score,
     mean_absolute_error, mean_squared_error, r2_score, confusion_matrix,
+    precision_recall_fscore_support,
 )
 
 from previa.models.registry import (
@@ -51,6 +54,10 @@ def run_benchmarks(
     cv_folds: int | None = None,
     test_size: float | None = None,
     model_hyperparams: dict[str, dict] | None = None,
+    preprocessor=None,
+    sample_ids: list[str] | None = None,
+    class_labels: list[str] | None = None,
+    return_fitted_estimators: bool = False,
 ) -> dict:
     """
     Train and evaluate models on preprocessed data.
@@ -82,77 +89,135 @@ def run_benchmarks(
     -------
     dict
     """
-    y = np.array(y)
+    y = np.asarray(y)
     n_samples = len(y)
     hyperparams_map = model_hyperparams or {}
 
-    # --- 1. Determine CV fold count ---
     if cv_folds is not None:
         actual_cv_folds = cv_folds
         cv_warning = None if cv_folds > 0 else "Cross-validation disabled."
     else:
         actual_cv_folds, cv_warning = _determine_cv_folds(n_samples, task_type)
 
-    # --- 2. Train / test split ---
-    split_size, X_train, X_test, y_train, y_test = _split_data(X, y, n_samples, task_type, user_test_size=test_size)
+    train_indices, test_indices, split_ratio, split_strategy = _split_indices(y, task_type, test_size)
+    X_train = _take_rows(X, train_indices)
+    X_test = _take_rows(X, test_indices)
+    y_train = y[train_indices]
+    y_test = y[test_indices]
+    ids = list(sample_ids) if sample_ids is not None else [f"row-{i}" for i in range(n_samples)]
+    if len(ids) != n_samples:
+        raise ValueError("sample_ids must contain one identifier for every input row.")
+    holdout_ids = [str(ids[i]) for i in test_indices]
+    split_configuration = {
+        "strategy": split_strategy,
+        "test_size": split_ratio,
+        "random_state": RANDOM_STATE,
+        "stratified": split_strategy == "train_test_split_stratified",
+        "training_sample_count": int(len(train_indices)),
+        "holdout_sample_count": int(len(test_indices)),
+    }
 
-    # --- 3. Determine models to evaluate ---
     if models_to_evaluate:
-        models_meta = []
-        for name in models_to_evaluate:
-            models_meta.append({"name": name, "family": "custom"})
+        models_meta = [{"name": name, "family": "custom"} for name in models_to_evaluate]
     else:
         models_meta = get_available_models(task_type, include_optional=include_optional)
 
-    # --- 4. Evaluate each model ---
     results = []
+    evaluation_artifacts = []
+    fitted_estimators = {}
     for meta in models_meta:
         name = meta["name"]
         try:
-            m_kwargs = hyperparams_map.get(name, {})
-            model = create_model_instance(name, task_type, random_state=RANDOM_STATE, **m_kwargs)
-            res = _evaluate_model(
-                name, model, X_train, X_test, y_train, y_test,
-                task_type, actual_cv_folds, X, y
+            model = create_model_instance(
+                name, task_type, random_state=RANDOM_STATE, **hyperparams_map.get(name, {})
+            )
+            res, artifact, fitted = _evaluate_model(
+                name=name,
+                model=model,
+                X_train=X_train,
+                X_test=X_test,
+                y_train=y_train,
+                y_test=y_test,
+                X_cv=X_train,
+                y_cv=y_train,
+                task_type=task_type,
+                cv_folds=actual_cv_folds,
+                preprocessor=preprocessor,
+                holdout_ids=holdout_ids,
+                class_labels=class_labels,
+                split_configuration=split_configuration,
             )
             res["family"] = meta.get("family", "general")
             res["status"] = "success"
+            artifact.update({"model": name, "family": res["family"], "status": "success"})
+            evaluation_artifacts.append(artifact)
+            if return_fitted_estimators:
+                fitted_estimators[name] = fitted
         except Exception as exc:
+            error_text = f"Model evaluation failed ({type(exc).__name__})."
             res = {
                 "model": name,
                 "family": meta.get("family", "general"),
                 "status": "failed",
-                "error_message": str(exc),
+                "error_message": error_text,
                 "training_time_seconds": 0.0,
                 "cv_mean": None,
                 "cv_std": None,
             }
-            if task_type in ("binary_classification", "multiclass_classification"):
+            if "classification" in task_type:
                 res.update({
-                    "accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0,
-                    "sensitivity": 0.0, "specificity": 0.0, "roc_auc": None,
+                    "accuracy": None, "precision": None, "recall": None, "f1": None,
+                    "f1_macro": None, "f1_weighted": None,
+                    "sensitivity": None, "specificity": None, "roc_auc": None,
                 })
             else:
-                res.update({"mae": float("inf"), "mse": float("inf"), "rmse": float("inf"), "r2": -float("inf")})
-
+                res.update({"mae": None, "mse": None, "rmse": None, "r2": None})
+            evaluation_artifacts.append({
+                "model": name,
+                "family": meta.get("family", "general"),
+                "status": "failed",
+                "error_message": error_text,
+                "holdout": None,
+                "cross_validation": {
+                    "fold_count": 0,
+                    "fold_scores": [],
+                    "mean": None,
+                    "standard_deviation": None,
+                    "metric": _cv_scoring(task_type),
+                    "aggregation": "arithmetic mean and population standard deviation",
+                    "error_message": "Unavailable because model evaluation failed.",
+                },
+                "split_configuration": split_configuration,
+            })
         results.append(res)
 
-    # --- 5. Determine ranking metric & winner ---
     chosen_metric = primary_metric or _default_primary_metric(task_type)
-    best_model, winner_reason, sorted_results = _find_best_model_and_sort(results, chosen_metric, task_type)
-
-    return {
+    best_model, winner_reason, sorted_results = _find_best_model_and_sort(
+        results, chosen_metric, task_type
+    )
+    output = {
         "task_type": task_type,
         "n_samples": n_samples,
         "n_features": X.shape[1],
         "cv_folds": actual_cv_folds,
         "cv_warning": cv_warning,
-        "test_size": test_size,
+        "test_size": split_ratio,
+        "training_sample_count": int(len(train_indices)),
+        "holdout_sample_count": int(len(test_indices)),
+        "split_configuration": split_configuration,
         "models": sorted_results,
         "best_model": best_model,
         "primary_metric": chosen_metric,
         "winner_explanation": winner_reason,
+        "evaluation_artifacts": evaluation_artifacts,
     }
+    if return_fitted_estimators:
+        output["_fitted_estimators"] = fitted_estimators
+        output["_split_indices"] = {
+            "train": train_indices.tolist(),
+            "holdout": test_indices.tolist(),
+        }
+    return output
 
 
 # ---------------------------------------------------------------------------
@@ -192,8 +257,26 @@ def _split_data(
     user_test_size: float | None = None,
 ) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Split data into train and test with stratification when appropriate."""
+    train_indices, test_indices, _, _ = _split_indices(y, task_type, user_test_size)
+    return (
+        len(test_indices),
+        _take_rows(X, train_indices),
+        _take_rows(X, test_indices),
+        y[train_indices],
+        y[test_indices],
+    )
+
+
+def _split_indices(
+    y: np.ndarray,
+    task_type: str,
+    user_test_size: float | None,
+) -> tuple[np.ndarray, np.ndarray, float, str]:
+    """Generate a shared, deterministic holdout split from positional row IDs."""
+    n_samples = len(y)
     if n_samples < 10:
-        return n_samples, X, X, y, y
+        indices = np.arange(n_samples)
+        return indices, indices, 1.0, "in_sample_fallback_too_few_rows"
 
     if user_test_size is not None and 0.05 <= user_test_size <= 0.5:
         test_ratio = float(user_test_size)
@@ -202,67 +285,194 @@ def _split_data(
 
     stratify = None
     if task_type in ("binary_classification", "multiclass_classification"):
-        unique_classes, counts = np.unique(y, return_counts=True)
+        _, counts = np.unique(y, return_counts=True)
         if len(counts) > 1 and counts.min() >= 2:
             stratify = y
-
+    indices = np.arange(n_samples)
     try:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_ratio, random_state=RANDOM_STATE, stratify=stratify
+        train_indices, test_indices = train_test_split(
+            indices, test_size=test_ratio, random_state=RANDOM_STATE, stratify=stratify
         )
-    except Exception:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_ratio, random_state=RANDOM_STATE
+        strategy = "train_test_split_stratified" if stratify is not None else "train_test_split"
+    except ValueError:
+        train_indices, test_indices = train_test_split(
+            indices, test_size=test_ratio, random_state=RANDOM_STATE
         )
+        strategy = "train_test_split_unstratified_fallback"
+    return np.asarray(train_indices), np.asarray(test_indices), test_ratio, strategy
 
-    return len(y_test), X_train, X_test, y_train, y_test
+
+def _take_rows(X, indices: np.ndarray):
+    """Select positional rows and preserve DataFrame column names."""
+    if isinstance(X, (pd.DataFrame, pd.Series)):
+        return X.iloc[indices]
+    return np.asarray(X)[indices]
 
 
 def _evaluate_model(
     name: str,
     model,
-    X_train: np.ndarray,
-    X_test: np.ndarray,
+    X_train,
+    X_test,
     y_train: np.ndarray,
     y_test: np.ndarray,
     task_type: str,
     cv_folds: int,
-    X_full: np.ndarray,
-    y_full: np.ndarray,
-) -> dict:
-    """Fit one model, measure execution time, compute hold-out metrics and CV."""
+    X_cv,
+    y_cv: np.ndarray,
+    preprocessor,
+    holdout_ids: list[str],
+    class_labels: list[str] | None,
+    split_configuration: dict,
+) -> tuple[dict, dict, object]:
+    """Fit/evaluate one estimator and retain its holdout predictions."""
+    estimator = _make_estimator(model, preprocessor)
     start_t = time.perf_counter()
-    model.fit(X_train, y_train)
+    estimator.fit(X_train, y_train)
     fit_duration = time.perf_counter() - start_t
-
-    y_pred = model.predict(X_test)
+    y_pred = estimator.predict(X_test)
     result = {
         "model": name,
-        "training_time_seconds": round(float(fit_duration), 4),
+        "training_time_seconds": float(fit_duration),
     }
-
-    # Hold-out metrics
-    if task_type in ("binary_classification", "multiclass_classification"):
-        result.update(_classification_metrics(y_test, y_pred, model, X_test, task_type))
+    if "classification" in task_type:
+        metrics = _classification_metrics(
+            y_test,
+            y_pred,
+            estimator,
+            X_test,
+            task_type,
+            labels=np.arange(len(class_labels)) if class_labels else np.unique(np.concatenate((y_test, y_pred))),
+        )
     else:
-        result.update(_regression_metrics(y_test, y_pred))
+        metrics = _regression_metrics(y_test, y_pred)
+    result.update(metrics)
 
-    # Cross-validation
+    cv_scores = []
+    cv_error = None
     if cv_folds >= 2:
-        cv_scoring = _cv_scoring(task_type)
         try:
-            cv_scores = cross_val_score(model, X_full, y_full, cv=cv_folds, scoring=cv_scoring)
-            result["cv_mean"] = round(float(cv_scores.mean()), 4)
-            result["cv_std"] = round(float(cv_scores.std()), 4)
+            effective_folds = _effective_cv_folds(y_cv, task_type, cv_folds)
+            if effective_folds >= 2:
+                if "classification" in task_type:
+                    cv = StratifiedKFold(
+                        n_splits=effective_folds, shuffle=True, random_state=RANDOM_STATE
+                    )
+                else:
+                    cv = KFold(n_splits=effective_folds, shuffle=True, random_state=RANDOM_STATE)
+                scores = cross_val_score(
+                    _make_estimator(model, preprocessor),
+                    X_cv,
+                    y_cv,
+                    cv=cv,
+                    scoring=_cv_scoring(task_type),
+                    error_score="raise",
+                )
+                cv_scores = [float(score) for score in scores if np.isfinite(score)]
+                if len(cv_scores) != effective_folds:
+                    raise ValueError("One or more cross-validation fold scores were undefined.")
+                result["cv_mean"] = float(np.mean(cv_scores))
+                result["cv_std"] = float(np.std(cv_scores))
+                result["cv_fold_scores"] = cv_scores
+                result["cv_folds"] = effective_folds
+            else:
+                result["cv_mean"] = None
+                result["cv_std"] = None
+                result["cv_fold_scores"] = []
+                result["cv_folds"] = 0
         except Exception as exc:
             result["cv_mean"] = None
             result["cv_std"] = None
-            result["cv_error"] = str(exc)
+            result["cv_fold_scores"] = []
+            result["cv_folds"] = 0
+            cv_error = f"Cross-validation unavailable ({type(exc).__name__})."
+            result["cv_error"] = cv_error
     else:
         result["cv_mean"] = None
         result["cv_std"] = None
+        result["cv_fold_scores"] = []
+        result["cv_folds"] = 0
 
-    return result
+    if "classification" in task_type:
+        actual = [_decode_label(value, class_labels) for value in y_test]
+        predicted = [_decode_label(value, class_labels) for value in y_pred]
+        labels = class_labels or [str(value) for value in np.unique(np.concatenate((y_test, y_pred)))]
+        probabilities = _probability_records(estimator, X_test, class_labels)
+        matrix = confusion_matrix(
+            y_test, y_pred, labels=np.arange(len(labels))
+        ).tolist()
+    else:
+        actual = [float(value) for value in y_test]
+        predicted = [float(value) for value in y_pred]
+        labels = []
+        probabilities = None
+        matrix = None
+
+    artifact = {
+        "split_configuration": split_configuration,
+        "holdout": {
+            "sample_ids": holdout_ids,
+            "actual": actual,
+            "predicted": predicted,
+            "probabilities": probabilities,
+            "sample_count": len(y_test),
+            "metrics": metrics,
+            "class_labels": labels,
+            "confusion_matrix": matrix,
+        },
+        "cross_validation": {
+            "fold_count": result["cv_folds"],
+            "fold_scores": result["cv_fold_scores"],
+            "mean": result["cv_mean"],
+            "standard_deviation": result["cv_std"],
+            "metric": _cv_scoring(task_type),
+            "aggregation": "arithmetic mean and population standard deviation",
+            "error_message": cv_error,
+            "evaluated_on": "training_partition_only",
+        },
+    }
+    return result, artifact, estimator
+
+
+def _make_estimator(model, preprocessor):
+    if preprocessor is None:
+        return clone(model)
+    return Pipeline([
+        ("preprocessor", clone(preprocessor)),
+        ("model", clone(model)),
+    ])
+
+
+def _effective_cv_folds(y: np.ndarray, task_type: str, requested: int) -> int:
+    if "classification" in task_type:
+        _, counts = np.unique(y, return_counts=True)
+        return min(requested, int(counts.min())) if len(counts) else 0
+    return min(requested, len(y))
+
+
+def _decode_label(value, class_labels: list[str] | None):
+    if class_labels is None:
+        return value.item() if isinstance(value, np.generic) else value
+    return str(class_labels[int(value)])
+
+
+def _probability_records(estimator, X_test, class_labels: list[str] | None):
+    if not hasattr(estimator, "predict_proba"):
+        return None
+    try:
+        probabilities = estimator.predict_proba(X_test)
+        model = estimator.named_steps["model"] if isinstance(estimator, Pipeline) else estimator
+        classes = getattr(model, "classes_", np.arange(probabilities.shape[1]))
+        labels = class_labels or [str(value) for value in classes]
+        return [
+            {
+                str(labels[int(class_index)]): float(probability)
+                for class_index, probability in zip(classes, row)
+            }
+            for row in probabilities
+        ]
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return None
 
 
 def _classification_metrics(
@@ -271,13 +481,15 @@ def _classification_metrics(
     model,
     X_test: np.ndarray,
     task_type: str,
+    labels: np.ndarray | None = None,
 ) -> dict:
     """Compute classification hold-out metrics including sensitivity and specificity."""
     is_binary = task_type == "binary_classification"
     average = "binary" if is_binary else "weighted"
 
     # Sensitivity (Recall / TPR) and Specificity (TNR)
-    cm = confusion_matrix(y_test, y_pred)
+    label_order = labels if labels is not None else np.unique(np.concatenate((y_test, y_pred)))
+    cm = confusion_matrix(y_test, y_pred, labels=label_order)
     if is_binary and cm.shape == (2, 2):
         tn, fp, fn, tp = cm.ravel()
         sensitivity = float(tp / (tp + fn)) if (tp + fn) > 0 else 0.0
@@ -299,18 +511,33 @@ def _classification_metrics(
 
     # Macro F1 treats both majority and minority classes with equal weight,
     # preventing artificial 0.0 or 1.0 distortions on imbalanced datasets.
-    f1_macro = round(float(f1_score(y_test, y_pred, average="macro", zero_division=0)), 4)
-    f1_weighted = round(float(f1_score(y_test, y_pred, average="weighted", zero_division=0)), 4)
+    per_class_precision, per_class_recall, per_class_f1, per_class_support = precision_recall_fscore_support(
+        y_test, y_pred, labels=label_order, zero_division=0
+    )
+    f1_macro = float(f1_score(y_test, y_pred, labels=label_order, average="macro", zero_division=0))
+    f1_weighted = float(f1_score(y_test, y_pred, labels=label_order, average="weighted", zero_division=0))
 
     metrics = {
-        "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
-        "precision": round(float(precision_score(y_test, y_pred, average="macro", zero_division=0)), 4),
-        "recall": round(float(recall_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+        "accuracy": float(accuracy_score(y_test, y_pred)),
+        "precision": float(precision_score(y_test, y_pred, labels=label_order, average="macro", zero_division=0)),
+        "recall": float(recall_score(y_test, y_pred, labels=label_order, average="macro", zero_division=0)),
         "f1": f1_macro,
         "f1_macro": f1_macro,
         "f1_weighted": f1_weighted,
-        "sensitivity": round(sensitivity, 4),
-        "specificity": round(specificity, 4),
+        "sensitivity": float(sensitivity),
+        "specificity": float(specificity),
+        "per_class_metrics": [
+            {
+                "label": int(label),
+                "precision": float(per_class_precision[index]),
+                "recall": float(per_class_recall[index]),
+                "f1": float(per_class_f1[index]),
+                "support": int(per_class_support[index]),
+            }
+            for index, label in enumerate(label_order)
+        ],
+        "confusion_matrix": cm.tolist(),
+        "class_labels": [int(label) for label in label_order],
         "roc_auc": None,
     }
 
@@ -318,10 +545,10 @@ def _classification_metrics(
         try:
             if is_binary and len(np.unique(y_test)) == 2:
                 y_prob = model.predict_proba(X_test)[:, 1]
-                metrics["roc_auc"] = round(float(roc_auc_score(y_test, y_prob)), 4)
+                metrics["roc_auc"] = float(roc_auc_score(y_test, y_prob))
             elif not is_binary and len(np.unique(y_test)) > 1:
                 y_prob = model.predict_proba(X_test)
-                metrics["roc_auc"] = round(float(roc_auc_score(y_test, y_prob, multi_class="ovr", average="macro")), 4)
+                metrics["roc_auc"] = float(roc_auc_score(y_test, y_prob, multi_class="ovr", average="macro"))
         except Exception:
             pass
 
@@ -332,10 +559,14 @@ def _regression_metrics(y_test: np.ndarray, y_pred: np.ndarray) -> dict:
     """Compute regression hold-out metrics."""
     mse = float(mean_squared_error(y_test, y_pred))
     return {
-        "mae": round(float(mean_absolute_error(y_test, y_pred)), 4),
-        "mse": round(mse, 4),
-        "rmse": round(float(np.sqrt(mse)), 4),
-        "r2": round(float(r2_score(y_test, y_pred)), 4),
+        "mae": float(mean_absolute_error(y_test, y_pred)),
+        "mse": mse,
+        "rmse": float(np.sqrt(mse)),
+        "r2": (
+            float(r2_score(y_test, y_pred))
+            if len(y_test) > 1 and len(np.unique(y_test)) > 1
+            else None
+        ),
     }
 
 

@@ -101,3 +101,30 @@ def test_current_user_requires_token_when_supabase_url_is_configured(monkeypatch
         asyncio.run(auth.get_current_user(authorization=None, token=None))
 
     assert exc_info.value.status_code == 401
+
+
+def test_require_admin_allows_authorized_founder(monkeypatch):
+    monkeypatch.setattr(auth.settings, "ADMIN_EMAILS", "founder@urqen.ai,admin@urqen.ai")
+    founder = auth.UserIdentity(user_id="founder-1", email="FOUNDER@URQEN.AI")
+
+    result = asyncio.run(auth.require_admin(user=founder))
+    assert result.user_id == "founder-1"
+
+
+def test_require_admin_rejects_unauthorized_user(monkeypatch):
+    monkeypatch.setattr(auth.settings, "ADMIN_EMAILS", "founder@urqen.ai")
+    regular_user = auth.UserIdentity(user_id="user-99", email="stranger@example.com")
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(auth.require_admin(user=regular_user))
+
+    assert exc_info.value.status_code == 403
+    assert "Admin privileges required" in exc_info.value.detail
+
+
+def test_is_admin_fails_closed_in_production_when_allowlist_is_empty(monkeypatch):
+    monkeypatch.setattr(auth.settings, "ADMIN_EMAILS", "")
+    monkeypatch.setattr(auth.settings, "SUPABASE_URL", "https://prod.supabase.co")
+
+    assert auth.settings.is_admin("anyone@example.com") is False
+    assert auth.settings.is_admin("") is False

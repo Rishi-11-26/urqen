@@ -39,8 +39,13 @@ class ModelBenchmarkResult(BaseModel):
     training_time_seconds: float
     cv_mean: Optional[float] = None
     cv_std: Optional[float] = None
+    cv_folds: Optional[int] = None
+    cv_fold_scores: Optional[List[float]] = None
+    holdout_sample_count: Optional[int] = None
     accuracy: Optional[float] = None
     f1: Optional[float] = None
+    f1_macro: Optional[float] = None
+    f1_weighted: Optional[float] = None
     precision: Optional[float] = None
     recall: Optional[float] = None
     sensitivity: Optional[float] = None

@@ -145,6 +145,12 @@ export const api = {
     return `${BASE_URL}/artifacts/${experimentId}/manifest${tokenParam}`;
   },
 
+  downloadEvaluationUrl: (experimentId) => {
+    const t = typeof _getToken === 'function' ? _getToken() : null;
+    const tokenParam = t ? `?token=${encodeURIComponent(t)}` : '';
+    return `${BASE_URL}/artifacts/${experimentId}/evaluation${tokenParam}`;
+  },
+
   downloadBundleUrl: (experimentId) => {
     const t = typeof _getToken === 'function' ? _getToken() : null;
     const tokenParam = t ? `?token=${encodeURIComponent(t)}` : '';

@@ -132,10 +132,18 @@ def _recommend_for_feature(
             confidence="high",
         )
 
-    # --- Rule 3: Possible identifier (near-unique non-numeric column) ---
-    # We flag non-numeric columns with >90% unique values.
-    # The pipeline builder will exclude these from training.
-    if feature_type == "categorical" and unique_pct >= 90.0:
+    # --- Rule 3: Possible identifier ---
+    # We flag non-numeric columns with >90% unique values, or numeric columns
+    # matching identifier naming patterns (e.g. id, index, pk, uuid) with >90% unique values.
+    # The pipeline builder will exclude these from training to avoid sample memorization.
+    is_identifier_pattern = any(
+        feature.lower().strip() == p or
+        feature.lower().strip().startswith(f"{p}_") or
+        feature.lower().strip().endswith(f"_{p}") or
+        feature.lower().strip().endswith(f" {p}")
+        for p in ("id", "uuid", "guid", "index", "key", "row", "pk")
+    )
+    if (feature_type == "categorical" and unique_pct >= 90.0) or (unique_pct >= 90.0 and is_identifier_pattern):
         return _make_rec(
             feature=feature,
             detected_type=feature_type,
@@ -147,7 +155,7 @@ def _recommend_for_feature(
                 "because models memorize them instead of learning real patterns."
             ),
             evidence=f"unique_pct={unique_pct}%",
-            confidence="medium",
+            confidence="high" if is_identifier_pattern else "medium",
         )
 
     # --- Rule 4: Numeric feature ---

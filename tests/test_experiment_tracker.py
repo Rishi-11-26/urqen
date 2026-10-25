@@ -28,7 +28,7 @@ class TestExperimentTracker:
         fp1 = compute_dataset_fingerprint(df1)
         fp2 = compute_dataset_fingerprint(df2)
         assert fp1 == fp2
-        assert len(fp1) == 16
+        assert len(fp1) == 64
 
     def test_create_manifest_structure(self):
         df = pd.DataFrame({"age": [25, 30, 35], "target": [0, 1, 0]})

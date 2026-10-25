@@ -73,16 +73,29 @@ def generate_markdown_report(
     lines.append("## 4. Target & Task Characterization")
     lines.append(f"- **Target Column:** `{m_task.get('target_column')}`")
     lines.append(f"- **Task Type:** `{m_task.get('task_type')}`")
-    lines.append(f"- **Random Seed:** `{m_task.get('random_seed')}`\n")
+    lines.append(f"- **Random Seed:** `{m_task.get('random_seed')}`")
+    exp_config = manifest.get("experiment_metadata", {})
+    if exp_config:
+        split = exp_config.get("split_configuration", {})
+        lines.append(f"- **Dataset Fingerprint (SHA-256):** `{m_data.get('fingerprint_sha256')}`")
+        lines.append(f"- **Split Strategy:** `{split.get('strategy', 'Unavailable')}`")
+        lines.append(f"- **Training / Holdout Samples:** {split.get('training_sample_count', 'Unavailable')} / {split.get('holdout_sample_count', 'Unavailable')}")
+        lines.append(f"- **Primary Metric Definition:** {exp_config.get('primary_metric_definition', 'Unavailable')}")
+    lines.append("")
 
     # 5. Preprocessing Decisions
     lines.append("## 5. Preprocessing Decisions & Leakage Prevention")
-    lines.append(f"- **Numeric Pipeline:** Imputation (Median) → StandardScaler")
-    lines.append(f"- **Categorical Pipeline:** Imputation (Most Frequent) → OneHotEncoder(handle_unknown='ignore')")
-    lines.append(f"- **Numeric Columns Processed:** {m_prep.get('numeric_features', [])}")
-    lines.append(f"- **Categorical Columns Processed:** {m_prep.get('categorical_features', [])}")
-    lines.append(f"- **Excluded Columns (Target/IDs/Constants):** {m_prep.get('dropped_features', [])}")
-    lines.append("- *Leakage Prevention:* Preprocessing transformers were strictly fitted on training splits only.\n")
+    lines.append(f"- **Original Input Columns:** {m_prep.get('original_dataset_columns', 'Unavailable in this run.')}")
+    lines.append(f"- **Candidate Features:** {m_prep.get('candidate_features', 'Unavailable in this run.')}")
+    lines.append(f"- **Numeric Columns Processed:** {m_prep.get('numeric_columns_processed', m_prep.get('numeric_features', 'Unavailable in this run.'))}")
+    lines.append(f"- **Categorical Columns Processed:** {m_prep.get('categorical_columns_processed', m_prep.get('categorical_features', 'Unavailable in this run.'))}")
+    excluded = m_prep.get("excluded_columns")
+    if excluded is None:
+        excluded = m_prep.get("dropped_features", "Unavailable in this run.")
+    lines.append(f"- **Excluded Columns and Reasons:** {excluded}")
+    lines.append(f"- **Fitted Steps:** {m_prep.get('preprocessing_steps', 'Unavailable in this run.')}")
+    lines.append(f"- **Final Transformed Feature Count:** {m_prep.get('final_transformed_feature_count', 'Unavailable in this run.')}")
+    lines.append(f"- **Fit Scope:** {m_prep.get('fit_scope', 'Unavailable in this run.')}\n")
 
     # 6 & 7. Evaluated Models & Winner
     lines.append("## 6. Evaluated Models & Winner Selection")
@@ -92,21 +105,87 @@ def generate_markdown_report(
 
     # 8. Metrics Table
     lines.append("## 7. Model Performance Comparison")
-    lines.append("| Model | Status | Family | Primary Score | CV Mean (Std) | Training Time |")
+    lines.append("| Model | Status | Family | Primary Score (Holdout) | CV Mean ± Std | Training Time |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: |")
     for m in m_bench.get("models_evaluated", []):
         score_val = m.get("primary_score")
         score_str = f"{float(score_val):.4f}" if score_val is not None else "N/A"
         cv_m = m.get("cv_mean")
         cv_s = m.get("cv_std")
-        cv_str = f"{cv_m} (±{cv_s})" if cv_m is not None else "N/A"
+        cv_str = f"{float(cv_m):.6f} ± {float(cv_s or 0):.6f}" if cv_m is not None else "N/A"
         t_val = m.get("training_time_seconds")
         t_str = f"{float(t_val):.3f}s" if t_val is not None else "N/A"
         lines.append(f"| {m.get('model')} | {m.get('status')} | {m.get('family')} | {score_str} | {cv_str} | {t_str} |")
     lines.append("")
 
+    # Stored predictions and independent verification are represented separately
+    # from cross-validation scores throughout this report.
+    eval_summary = manifest.get("evaluation_summary", {})
+    eval_models = eval_summary.get("models", [])
+    lines.append("## 8. Holdout Evaluation Artifacts")
+    if not eval_models:
+        lines.append("Holdout labels/predictions were not retained for this historical run; no artifacts were reconstructed.")
+    else:
+        for item in eval_models:
+            lines.append(f"### {item.get('model', 'Unknown')} — {item.get('status', 'unknown')}")
+            holdout = item.get("holdout") or {}
+            if holdout:
+                lines.append(f"- **Evaluation type:** Holdout")
+                lines.append(f"- **Holdout sample count:** {holdout.get('sample_count', 'Unavailable')}")
+                lines.append(f"- **Holdout metric values:** {holdout.get('metrics', {})}")
+                if holdout.get("confusion_matrix") is not None:
+                    lines.append(f"- **Class-label order:** {holdout.get('class_labels', [])}")
+                    lines.append(f"- **Confusion matrix:** `{holdout.get('confusion_matrix')}`")
+                elif holdout.get("example_pairs"):
+                    lines.append("- **Regression holdout actual/predicted examples (first 10):**")
+                    lines.append("| Sample ID | Actual | Predicted |")
+                    lines.append("| :--- | ---: | ---: |")
+                    for pair in holdout["example_pairs"]:
+                        lines.append(f"| {pair.get('sample_id')} | {pair.get('actual')} | {pair.get('predicted')} |")
+                cv = item.get("cross_validation") or {}
+                lines.append(
+                    f"- **Cross-validation only:** {cv.get('fold_count', 0)} folds; "
+                    f"scores `{cv.get('fold_scores', [])}`; mean {cv.get('mean')}; "
+                    f"standard deviation {cv.get('standard_deviation')} "
+                    f"({cv.get('metric', 'metric unavailable')})."
+                )
+            else:
+                lines.append(f"- **Artifacts unavailable:** {item.get('error_message', 'No holdout artifacts were retained.')}")
+        lines.append("")
+
+    lines.append("## 9. Independent Metric Verification")
+    if not eval_models:
+        lines.append("Unavailable for this historical run because its actual holdout labels and predictions were not retained.")
+    else:
+        lines.append("| Model | Metric | Reported | Recalculated | Absolute Difference | Status |")
+        lines.append("| :--- | :--- | ---: | ---: | ---: | :--- |")
+        for item in eval_models:
+            for metric, evidence in (item.get("metric_verification") or {}).items():
+                if not isinstance(evidence, dict) or "status" not in evidence:
+                    continue
+                lines.append(
+                    f"| {item.get('model')} | {metric} | {evidence.get('reported')} | "
+                    f"{evidence.get('recalculated')} | {evidence.get('absolute_difference')} | "
+                    f"{evidence.get('status')} |"
+                )
+    lines.append("")
+
+    lines.append("## 10. Holdout Split Consistency")
+    consistency = eval_summary.get("split_consistency")
+    if consistency:
+        lines.append(f"- **Status:** {consistency.get('status')}")
+        lines.append(f"- **Models with evaluation artifacts:** {consistency.get('evaluated_model_count')}")
+        lines.append(f"- **Holdout counts:** {consistency.get('holdout_sample_count_per_model')}")
+        lines.append(f"- **Split configuration matches:** {consistency.get('split_configuration_matches')}")
+        lines.append(f"- **Row identifiers match:** {consistency.get('holdout_row_identifiers_match')}")
+        lines.append(f"- **Target labels align:** {consistency.get('target_labels_aligned')}")
+        lines.append(f"- **Missing/inconsistent artifacts:** {consistency.get('missing_or_inconsistent_artifacts')}")
+    else:
+        lines.append("Unavailable for this historical run; equal sample counts alone are not evidence of identical holdout rows.")
+    lines.append("")
+
     # 9. Explainability
-    lines.append("## 8. Explainability & Feature Importance")
+    lines.append("## 11. Explainability & Feature Importance")
     if m_exp:
         lines.append(f"- **Method:** {m_exp.get('method_used')}")
         lines.append(f"- **Top Influential Features:** {', '.join(m_exp.get('top_features', []))}")
@@ -116,14 +195,24 @@ def generate_markdown_report(
     lines.append("")
 
     # 10. Known Limitations
-    lines.append("## 9. Known Technical Limitations")
+    lines.append("## 12. Known Technical Limitations")
     lines.append("- Baseline models only; no extensive hyperparameter tuning was applied.")
     lines.append("- Linear models assume additive linear relationships; complex nonlinear interactions may require deep trees or feature engineering.")
     lines.append("- High-cardinality categories should be monitored if deployed on unconstrained external inputs.")
+    lines.append("- Repeated selection or tuning based on holdout results can cause indirect holdout overfitting.")
     lines.append("")
 
     # 11. Recommended Next Steps
-    lines.append("## 10. Recommended Next Steps")
+    lines.append("## 13. Limitations and Warnings")
+    warnings = eval_summary.get("warnings", [])
+    if warnings:
+        for warning in warnings:
+            lines.append(f"- {warning}")
+    else:
+        lines.append("No evaluation warnings were recorded.")
+    lines.append("")
+
+    lines.append("## 14. Recommended Next Steps")
     lines.append("1. Validate model performance against a dedicated out-of-time test split if temporal data is available.")
     lines.append("2. Download the exported `.joblib` model bundle for local reproducible inference.")
     lines.append("3. Review flagged data quality issues with subject-matter experts before clinical or production use.")

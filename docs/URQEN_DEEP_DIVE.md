@@ -1,6 +1,6 @@
-# Previa Deep Dive — Module Technical Reference
+# URQEN Deep Dive — Module Technical Reference
 
-This document provides a module-by-module breakdown of Previa's internal architecture, mathematical formulations, and engineering design rationale.
+This document provides a module-by-module breakdown of URQEN's internal architecture, mathematical formulations, and engineering design rationale.
 
 ---
 

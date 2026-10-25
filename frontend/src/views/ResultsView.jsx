@@ -1,5 +1,5 @@
 import {
-  Award, FileText, Package, Download,
+  Award, FileText, Package, Download, ClipboardCheck,
   BarChart3, TrendingUp,
 } from 'lucide-react';
 import ConfusionMatrix from '../components/ConfusionMatrix';
@@ -90,6 +90,17 @@ export default function ResultsView({ experiment, onSelectAnotherExperiment }) {
           >
             <FileText size={14} color="#00e5c3" /> HTML Report
           </a>
+          {resObj.evaluation_available && (
+            <a
+            href={api.downloadEvaluationUrl(experiment_id)}
+            target="_blank" rel="noreferrer"
+            className="btn"
+            style={{ background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: 12.5 }}
+            title="Download the stored holdout predictions, metrics, split audit, and verification results"
+          >
+            <ClipboardCheck size={14} color="#fbbf24" /> Evaluation JSON
+            </a>
+          )}
           <a
             href={api.downloadBundleUrl(experiment_id)}
             target="_blank" rel="noreferrer"

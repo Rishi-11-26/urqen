@@ -4,10 +4,14 @@ backend/routers/artifacts.py
 Artifact download and live model inference endpoints.
 """
 
+import hashlib
 import io
+import json
 import pathlib
+import uuid
+
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 from fastapi.responses import FileResponse, Response
 
 from backend.config import settings
@@ -17,6 +21,45 @@ from backend.schemas.prediction import PredictionResponse, PredictionRecord
 from previa.export.model_bundle import load_model_bundle
 
 router = APIRouter(prefix="/api/artifacts", tags=["Artifacts & Predictions"])
+MAX_EVALUATION_EXPORT_BYTES = 25 * 1024 * 1024
+
+
+def _evaluation_path(experiment_id: str, user: UserIdentity) -> pathlib.Path:
+    try:
+        uuid.UUID(experiment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid experiment identifier.") from exc
+    experiment = get_experiment_record(experiment_id, user.user_id)
+    if not experiment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Experiment not found or access denied.",
+        )
+    path_string = experiment.get("artifact_paths", {}).get("evaluation")
+    if not path_string:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stored holdout evaluation artifacts are unavailable for this experiment.",
+        )
+    path = pathlib.Path(path_string)
+    expected_directory = (settings.ARTIFACTS_DIR / experiment_id).resolve()
+    if path.resolve().parent != expected_directory or not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Evaluation artifact is missing or outside the experiment artifact directory.",
+        )
+    return path
+
+
+def _evaluation_record(
+    experiment_id: str,
+    user: UserIdentity,
+) -> tuple[dict, pathlib.Path]:
+    path = _evaluation_path(experiment_id, user)
+    experiment = get_experiment_record(experiment_id, user.user_id)
+    if experiment is None:
+        raise HTTPException(status_code=404, detail="Experiment not found or access denied.")
+    return experiment, path
 
 
 @router.get("/{experiment_id}/report")
@@ -57,6 +100,92 @@ async def download_manifest(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manifest artifact not found.")
 
     return FileResponse(path=path_str, media_type="application/json", filename=f"previa_manifest_{experiment_id[:8]}.json")
+
+
+@router.get("/{experiment_id}/evaluation")
+async def download_evaluation_export(
+    experiment_id: str,
+    user: UserIdentity = Depends(get_current_user),
+):
+    """Downloads stored holdout predictions and evaluation verification artifacts."""
+    evaluation_path = _evaluation_path(experiment_id, user)
+    if evaluation_path.stat().st_size > MAX_EVALUATION_EXPORT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                "Evaluation export exceeds the 25 MiB download limit. "
+                "Use the paginated evaluation samples endpoint to retrieve predictions."
+            ),
+        )
+    return FileResponse(
+        path=evaluation_path,
+        media_type="application/json",
+        filename=f"previa_evaluation_{experiment_id[:8]}.json",
+    )
+
+
+@router.get("/{experiment_id}/evaluation/samples")
+async def get_evaluation_samples(
+    experiment_id: str,
+    model_name: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=500),
+    user: UserIdentity = Depends(get_current_user),
+):
+    """Returns a bounded page of one model's stored holdout predictions."""
+    experiment, _ = _evaluation_record(experiment_id, user)
+    model = next(
+        (
+            item for item in (experiment.get("results") or {}).get("models", [])
+            if item.get("model") == model_name
+        ),
+        None,
+    )
+    if model is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model evaluation artifact not found.",
+        )
+    if model.get("status") != "success":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Holdout predictions are unavailable for this model.",
+        )
+    sample_key = hashlib.sha256(model_name.encode("utf-8")).hexdigest()[:16]
+    sample_path_string = (experiment.get("artifact_paths") or {}).get(
+        f"evaluation_samples_{sample_key}"
+    )
+    if not sample_path_string:
+        raise HTTPException(status_code=404, detail="Paginated holdout samples are unavailable.")
+    sample_path = pathlib.Path(sample_path_string)
+    expected_directory = (settings.ARTIFACTS_DIR / experiment_id / "evaluation_samples").resolve()
+    if sample_path.resolve().parent != expected_directory or not sample_path.is_file():
+        raise HTTPException(status_code=404, detail="Paginated holdout sample artifact is missing.")
+    total = int((experiment.get("results") or {}).get("holdout_sample_count") or 0)
+    end = min(offset + limit, total)
+    samples = []
+    with sample_path.open("r", encoding="utf-8") as sample_file:
+        for index, line in enumerate(sample_file):
+            if index < offset:
+                continue
+            if index >= end:
+                break
+            try:
+                samples.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Stored holdout sample artifact is malformed.",
+                ) from exc
+    return {
+        "experiment_id": experiment_id,
+        "model": model_name,
+        "offset": offset,
+        "limit": limit,
+        "total": total,
+        "has_more": end < total,
+        "samples": samples,
+    }
 
 
 @router.get("/{experiment_id}/model-bundle")

@@ -1,8 +1,8 @@
-# Previa Architecture & Technical Blueprint
+# URQEN Architecture & Technical Blueprint
 
 ## 1. System Philosophy
 
-Previa is an automated, trustworthy pre-model data intelligence workbench for tabular datasets. Its core engineering tenet is:
+URQEN is a tabular machine-learning workbench for data inspection, experiment setup, and result review. Its core engineering tenet is:
 > **"Understand the data before trusting the model."**
 
 The platform operates on a local-first, zero-external-API architecture designed to prevent data leakage, expose evidence for every recommendation, transparently evaluate baseline models, and export reproducible inference artifacts.
@@ -93,6 +93,6 @@ Raw CSV / XLSX Upload
 2. **Deterministic Over Black-Box**:
    All preprocessing recommendations are derived from statistical rules rather than opaque LLM prompts.
 3. **Graceful Degradation**:
-   If a model (such as XGBoost) or explainability method (such as SHAP) fails or is uninstalled, Previa seamlessly logs the condition and falls back to robust standard baselines.
+   If a model (such as XGBoost) or explainability method (such as SHAP) fails or is uninstalled, URQEN logs the condition and uses available fallbacks where implemented.
 4. **Reproducibility by Design**:
    Fixed random seeds (`42`), dataset SHA-256 fingerprinting, and standardized metadata bundles ensure experiments can be audited and reproduced.
