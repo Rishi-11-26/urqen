@@ -140,12 +140,18 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
 
         {/* Modal Body Content */}
         <div
+          className="legal-modal-body"
           style={{
             padding: '24px 28px',
             overflowY: 'auto',
+            scrollBehavior: 'smooth',
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehavior: 'contain',
             fontSize: 13,
             lineHeight: 1.65,
             color: 'var(--text-main)',
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'var(--primary-mid) var(--bg-subtle)',
           }}
         >
           {activeTab === 'terms' ? (

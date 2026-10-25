@@ -1613,10 +1613,35 @@ code {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #d1d9e6;
+  background: rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-full);
 }
-::-webkit-scrollbar-thumb:hover { background: #b0bbc9; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+.legal-modal-body {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.legal-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.legal-modal-body::-webkit-scrollbar-track {
+  background: var(--bg-subtle);
+  border-radius: 4px;
+}
+
+.legal-modal-body::-webkit-scrollbar-thumb {
+  background: var(--primary-mid);
+  border-radius: 4px;
+}
+
+.legal-modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
 
 /* ── Animations ──────────────────────────────────────────── */
 @keyframes fadeIn {
