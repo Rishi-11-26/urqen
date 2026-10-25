@@ -9,6 +9,7 @@ import HistoryView from './views/HistoryView';
 import HowItWorksView from './views/HowItWorksView';
 import AuthView from './views/AuthView';
 import AdminView from './views/AdminView';
+import NotFoundView from './views/NotFoundView';
 import LegalModal from './components/LegalModal';
 import Footer from './components/Footer';
 import UrqenLogo from './components/UrqenLogo';
@@ -543,6 +544,11 @@ function UrqenApp() {
 
         {currentTab === 'admin' && (
           <AdminView currentUserId={user?.id} />
+        )}
+
+        {/* 404 fallback — unknown tab */}
+        {!['dashboard', 'dataset-lab', 'experiment-studio', 'results', 'history', 'how-it-works', 'admin'].includes(currentTab) && (
+          <NotFoundView onNavigate={setCurrentTab} />
         )}
 
         {currentTab !== 'how-it-works' && (

@@ -1,8 +1,27 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle2, ArrowRight, ShieldCheck, Cpu, BarChart3, Database } from 'lucide-react';
 import UrqenLogo from '../components/UrqenLogo';
 import MLTournamentVisualizer from '../components/MLTournamentVisualizer';
+
+// Password strength checker
+function getPasswordStrength(pwd) {
+  const checks = {
+    length:    pwd.length >= 8,
+    uppercase: /[A-Z]/.test(pwd),
+    lowercase: /[a-z]/.test(pwd),
+    digit:     /[0-9]/.test(pwd),
+    special:   /[^A-Za-z0-9]/.test(pwd),
+  };
+  const passed = Object.values(checks).filter(Boolean).length;
+  let label = 'Too weak';
+  let color = '#ef4444';
+  if (passed === 5)       { label = 'Strong';   color = '#22c55e'; }
+  else if (passed === 4)  { label = 'Good';     color = '#84cc16'; }
+  else if (passed === 3)  { label = 'Fair';     color = '#f59e0b'; }
+  else if (passed >= 1)   { label = 'Weak';     color = '#ef4444'; }
+  return { checks, passed, label, color };
+}
 
 export default function AuthView({ onAuthSuccess, onOpenLegal }) {
   const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'forgot'
@@ -14,6 +33,8 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  const pwStrength = useMemo(() => getPasswordStrength(password), [password]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -30,13 +51,17 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
     setError(null);
     if (!agreedToTerms) { setError('Please agree to the Terms of Service and Privacy Policy to create an account.'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
-    if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (!/[A-Z]/.test(password)) { setError('Password must contain at least one uppercase letter.'); return; }
+    if (!/[a-z]/.test(password)) { setError('Password must contain at least one lowercase letter.'); return; }
+    if (!/[0-9]/.test(password)) { setError('Password must contain at least one number.'); return; }
+    if (!/[^A-Za-z0-9]/.test(password)) { setError('Password must contain at least one special character (e.g. @, #, !).'); return; }
     setLoading(true);
     const { error: err } = await supabase.auth.signUp({ email, password });
     setLoading(false);
     if (err) { setError(err.message); return; }
     setSuccess(
-      `Your URQEN account request was created. Check ${email} for the email confirmation link to activate your account. The message may currently appear to be from Supabase. If it is not in your inbox, check your spam or junk folder.`
+      `Account created! A confirmation email has been sent to ${email}. Click the link inside to activate your account. If you don't see it within a minute, check your spam or junk folder.`
     );
     setMode('login');
   };
@@ -332,7 +357,7 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                           placeholder="••••••••••••"
                           style={{ ...inputStyle, paddingLeft: 42, paddingRight: 42 }}
                           autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                          minLength={6}
+                          minLength={mode === 'signup' ? 8 : 6}
                         />
                         <button
                           type="button"
@@ -341,6 +366,53 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                         >
                           {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Password Strength Meter (signup only) */}
+                  {mode === 'signup' && password.length > 0 && (
+                    <div style={{ marginTop: -8, marginBottom: 14 }}>
+                      {/* Bar */}
+                      <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <div
+                            key={i}
+                            style={{
+                              flex: 1,
+                              height: 3,
+                              borderRadius: 99,
+                              background: i <= pwStrength.passed ? pwStrength.color : 'var(--border-color)',
+                              transition: 'background 0.2s',
+                            }}
+                          />
+                        ))}
+                      </div>
+                      {/* Requirement chips */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 8px' }}>
+                        {[
+                          { key: 'length',    label: '8+ chars' },
+                          { key: 'uppercase', label: 'A–Z' },
+                          { key: 'lowercase', label: 'a–z' },
+                          { key: 'digit',     label: '0–9' },
+                          { key: 'special',   label: '!@#…' },
+                        ].map(({ key, label }) => (
+                          <span
+                            key={key}
+                            style={{
+                              fontSize: 10.5,
+                              padding: '2px 7px',
+                              borderRadius: 99,
+                              fontWeight: 600,
+                              background: pwStrength.checks[key] ? 'rgba(34,197,94,0.12)' : 'var(--bg-subtle)',
+                              color: pwStrength.checks[key] ? '#22c55e' : 'var(--text-subtle)',
+                              border: `1px solid ${pwStrength.checks[key] ? '#22c55e44' : 'var(--border-light)'}`,
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            {pwStrength.checks[key] ? '✓ ' : ''}{label}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   )}
