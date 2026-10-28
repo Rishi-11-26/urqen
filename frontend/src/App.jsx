@@ -13,7 +13,7 @@ import NotFoundView from './views/NotFoundView';
 import LegalModal from './components/LegalModal';
 import Footer from './components/Footer';
 import UrqenLogo from './components/UrqenLogo';
-import { api, setTokenProvider } from './api';
+import { api, setTokenProvider, setSessionExpiredHandler } from './api';
 import { supabase } from './lib/supabase';
 
 function UrqenApp() {
@@ -79,6 +79,19 @@ function UrqenApp() {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const handleExpired = () => {
+      supabase.auth.signOut().catch(() => {});
+      setSession(null);
+      setUser(null);
+    };
+    setSessionExpiredHandler(handleExpired);
+    window.addEventListener('urqen:session-expired', handleExpired);
+    return () => {
+      window.removeEventListener('urqen:session-expired', handleExpired);
+    };
   }, []);
 
   // Bootstrap app data whenever user is confirmed signed-in

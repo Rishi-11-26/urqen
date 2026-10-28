@@ -8,6 +8,7 @@ import uuid
 import hashlib
 import pathlib
 import json
+import datetime
 import numpy as np
 import pandas as pd
 from typing import List, Optional
@@ -526,8 +527,38 @@ async def create_and_run_experiment(
             detail=m_status.get("message", "Platform is currently in maintenance mode. Training is paused."),
         )
 
-    # Enforce trial quota (2 free Guided runs, 1 free Expert run; unlimited for Developer)
     is_admin_user = settings.is_admin(user.email)
+
+    # Prevent concurrent experiment execution for the same user (stops job spamming & quota racing)
+    if not is_admin_user:
+        active_exps = [e for e in list_experiments(user.user_id) if e.get("status") == "running"]
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for active in active_exps:
+            created_str = active.get("created_at")
+            is_stale = False
+            if created_str:
+                try:
+                    created_dt = datetime.datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    if (now - created_dt).total_seconds() > 900:  # 15 min timeout for stale jobs
+                        is_stale = True
+                except Exception:
+                    is_stale = True
+            else:
+                is_stale = True
+
+            if is_stale:
+                update_experiment_error(
+                    active.get("experiment_id"),
+                    user.user_id,
+                    "Experiment execution timed out.",
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="An experiment is already actively running for your account. Please wait for it to complete.",
+                )
+
+    # Enforce trial quota (2 free Guided runs, 1 free Expert run; unlimited for Developer)
     try:
         check_and_increment_trial_quota(user.user_id, mode=req.mode or "guided", is_admin=is_admin_user)
     except RuntimeError as exc:

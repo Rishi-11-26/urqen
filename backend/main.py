@@ -5,7 +5,11 @@ FastAPI server entrypoint for URQEN Tabular ML Platform.
 Exposes REST API, OpenAPI docs, and manages background experimentation tasks.
 """
 
-from fastapi import FastAPI, HTTPException
+import os
+import time
+from collections import defaultdict
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.routers import datasets, experiments, artifacts, admin, presence, account
@@ -21,6 +25,54 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# In-memory sliding-window rate limiter: IP -> list of request timestamps
+_request_history = defaultdict(list)
+_RATE_LIMIT_WINDOW = 60  # 1 minute window
+_RATE_LIMIT_MAX_REQUESTS = 180  # 180 general API requests per minute per IP
+_RATE_LIMIT_SENSITIVE_MAX = 20  # max 20 uploads / benchmarks per minute per IP
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    # Only rate limit /api/ routes
+    if not request.url.path.startswith("/api"):
+        return await call_next(request)
+
+    # Health check, maintenance check, and heartbeat bypass rate limiting
+    if request.url.path in ("/api/health", "/api/maintenance", "/api/presence/heartbeat"):
+        return await call_next(request)
+
+    client_ip = request.client.host if request.client else "unknown"
+
+    # In automated test environments (pytest testclient), bypass rate limiting
+    if client_ip in ("testclient", "127.0.0.1", "localhost") and os.environ.get("PYTEST_CURRENT_TEST"):
+        return await call_next(request)
+
+    now = time.time()
+    cutoff = now - _RATE_LIMIT_WINDOW
+
+    # Clean old requests
+    req_history = [t for t in _request_history[client_ip] if t > cutoff]
+
+    is_sensitive = (
+        request.url.path.startswith("/api/datasets/upload")
+        or request.url.path.startswith("/api/experiments/benchmark")
+    )
+    limit = _RATE_LIMIT_SENSITIVE_MAX if is_sensitive else _RATE_LIMIT_MAX_REQUESTS
+
+    if len(req_history) >= limit:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={
+                "detail": "Rate limit exceeded. For platform stability, please wait a moment before trying again.",
+            },
+        )
+
+    req_history.append(now)
+    _request_history[client_ip] = req_history
+
+    return await call_next(request)
 
 # CORS configuration
 app.add_middleware(

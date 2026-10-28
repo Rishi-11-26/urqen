@@ -23,8 +23,15 @@ function getPasswordStrength(pwd) {
   return { checks, passed, label, color };
 }
 
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  'mailinator.com', 'tempmail.com', 'temp-mail.org', '10minutemail.com',
+  'guerrillamail.com', 'sharklasers.com', 'throwawaymail.com', 'yopmail.com',
+  'getairmail.com', 'dispostable.com', 'trashmail.com', 'fakeinbox.com',
+  'burnermail.io', 'inboxkitten.com', 'mohmal.com', 'nada.ltd',
+]);
+
 export default function AuthView({ onAuthSuccess, onOpenLegal }) {
-  const [mode, setMode] = useState('login'); // 'login' | 'signup' | 'forgot'
+  const [mode, setMode] = useState('login'); // 'login' | 'signup'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -33,22 +40,47 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setInterval(() => setCooldownSeconds((prev) => prev - 1), 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSeconds]);
 
   const pwStrength = useMemo(() => getPasswordStrength(password), [password]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (cooldownSeconds > 0) return;
     setLoading(true);
     setError(null);
     const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
-    if (err) { setError(err.message); return; }
+    if (err) {
+      const nextCount = failedAttempts + 1;
+      setFailedAttempts(nextCount);
+      if (nextCount >= 5) {
+        setCooldownSeconds(30);
+        setError('Too many failed sign-in attempts. Security cooldown active for 30 seconds.');
+      } else {
+        setError(err.message);
+      }
+      return;
+    }
+    setFailedAttempts(0);
     onAuthSuccess(data.session, data.user);
   };
 
   const handleSignup = async (e) => {
     e.preventDefault();
     setError(null);
+    const domain = (email.split('@')[1] || '').toLowerCase().trim();
+    if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
+      setError('Temporary or disposable email addresses are not permitted. Please use your genuine personal or academic email.');
+      return;
+    }
     if (!agreedToTerms) { setError('Please agree to the Terms of Service and Privacy Policy to create an account.'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
@@ -64,18 +96,6 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
       `Account created! A confirmation email has been sent to ${email}. Click the link inside to activate your account. If you don't see it within a minute, check your spam or junk folder.`
     );
     setMode('login');
-  };
-
-  const handleForgot = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    setLoading(false);
-    if (err) { setError(err.message); return; }
-    setSuccess('Password reset link sent! Check your email.');
   };
 
   const inputStyle = {
@@ -247,41 +267,39 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
               }}
             >
               {/* Tab Selector */}
-              {mode !== 'forgot' && (
-                <div
-                  style={{
-                    display: 'flex',
-                    borderBottom: '1px solid var(--border-color)',
-                    background: 'var(--bg-app)',
-                  }}
-                >
-                  {[
-                    { id: 'login', label: 'Sign In' },
-                    { id: 'signup', label: 'Create Account' },
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => { setMode(tab.id); setError(null); setSuccess(null); setAgreedToTerms(false); }}
-                      style={{
-                        flex: 1,
-                        padding: '15px 0',
-                        border: 'none',
-                        background: 'none',
-                        fontSize: 13.5,
-                        fontFamily: "'Syne', var(--font-sans)",
-                        fontWeight: mode === tab.id ? 700 : 600,
-                        color: mode === tab.id ? 'var(--primary)' : 'var(--text-subtle)',
-                        borderBottom: mode === tab.id ? '2px solid var(--primary)' : '2px solid transparent',
-                        cursor: 'pointer',
-                        transition: 'all var(--duration-fast)',
-                        letterSpacing: '0.02em',
-                      }}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div
+                style={{
+                  display: 'flex',
+                  borderBottom: '1px solid var(--border-color)',
+                  background: 'var(--bg-app)',
+                }}
+              >
+                {[
+                  { id: 'login', label: 'Sign In' },
+                  { id: 'signup', label: 'Create Account' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => { setMode(tab.id); setError(null); setSuccess(null); setAgreedToTerms(false); }}
+                    style={{
+                      flex: 1,
+                      padding: '15px 0',
+                      border: 'none',
+                      background: 'none',
+                      fontSize: 13.5,
+                      fontFamily: "'Syne', var(--font-sans)",
+                      fontWeight: mode === tab.id ? 700 : 600,
+                      color: mode === tab.id ? 'var(--primary)' : 'var(--text-subtle)',
+                      borderBottom: mode === tab.id ? '2px solid var(--primary)' : '2px solid transparent',
+                      cursor: 'pointer',
+                      transition: 'all var(--duration-fast)',
+                      letterSpacing: '0.02em',
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
 
               <div style={{ padding: 32 }}>
                 {/* Header */}
@@ -297,12 +315,10 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                   >
                     {mode === 'login' && 'Access Your Studio'}
                     {mode === 'signup' && 'Register Workspace'}
-                    {mode === 'forgot' && 'Reset Security Credentials'}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                     {mode === 'login' && 'Sign in to access your stored datasets and trained pipelines.'}
                     {mode === 'signup' && 'Instant access to empirical tabular machine learning.'}
-                    {mode === 'forgot' && "Enter your email address to receive password reset instructions."}
                   </div>
                 </div>
 
@@ -321,7 +337,7 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                 )}
 
                 {/* Form */}
-                <form onSubmit={mode === 'login' ? handleLogin : mode === 'signup' ? handleSignup : handleForgot}>
+                <form onSubmit={mode === 'login' ? handleLogin : handleSignup}>
                   {/* Email */}
                   <div style={{ marginBottom: 16 }}>
                     <label style={{ fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -342,33 +358,31 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                   </div>
 
                   {/* Password */}
-                  {mode !== 'forgot' && (
-                    <div style={{ marginBottom: 16 }}>
-                      <label style={{ fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Password
-                      </label>
-                      <div style={{ position: 'relative' }}>
-                        <Lock size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)' }} />
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          required
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="••••••••••••"
-                          style={{ ...inputStyle, paddingLeft: 42, paddingRight: 42 }}
-                          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                          minLength={mode === 'signup' ? 8 : 6}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((v) => !v)}
-                          style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 0 }}
-                        >
-                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Password
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                      <Lock size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)' }} />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••••••"
+                        style={{ ...inputStyle, paddingLeft: 42, paddingRight: 42 }}
+                        autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                        minLength={mode === 'signup' ? 8 : 6}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 0 }}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
                     </div>
-                  )}
+                  </div>
 
                   {/* Password Strength Meter (signup only) */}
                   {mode === 'signup' && password.length > 0 && (
@@ -439,19 +453,6 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                     </div>
                   )}
 
-                  {/* Forgot link (login mode) */}
-                  {mode === 'login' && (
-                    <div style={{ textAlign: 'right', marginBottom: 20, marginTop: -6 }}>
-                      <button
-                        type="button"
-                        onClick={() => { setMode('forgot'); setError(null); setSuccess(null); }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--primary)', fontWeight: 600, padding: 0 }}
-                      >
-                        Forgot credentials?
-                      </button>
-                    </div>
-                  )}
-
                   {/* Agree to Terms (signup only) */}
                   {mode === 'signup' && (
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18 }}>
@@ -475,7 +476,7 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                   <button
                     type="submit"
                     className="btn btn-primary"
-                    disabled={loading || (mode === 'signup' && !agreedToTerms)}
+                    disabled={loading || cooldownSeconds > 0 || (mode === 'signup' && !agreedToTerms)}
                     style={{ width: '100%', justifyContent: 'center', gap: 10, fontSize: 14, padding: '13px 0' }}
                   >
                     {loading ? (
@@ -484,22 +485,11 @@ export default function AuthView({ onAuthSuccess, onOpenLegal }) {
                       <ArrowRight size={16} />
                     )}
                     {loading ? 'Authenticating…' : (
+                      cooldownSeconds > 0 ? `Wait ${cooldownSeconds}s (Cooldown)` :
                       mode === 'login' ? 'Enter Studio' :
-                      mode === 'signup' ? 'Create Account & Begin' :
-                      'Dispatch Reset Link'
+                      'Create Account & Begin'
                     )}
                   </button>
-
-                  {/* Back to login (forgot mode) */}
-                  {mode === 'forgot' && (
-                    <button
-                      type="button"
-                      onClick={() => { setMode('login'); setError(null); setSuccess(null); }}
-                      style={{ width: '100%', marginTop: 14, background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}
-                    >
-                      ← Return to Sign In
-                    </button>
-                  )}
                 </form>
               </div>
 

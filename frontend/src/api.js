@@ -4,11 +4,16 @@
  * Includes Supabase JWT bearer token on every request when user is signed in.
  */
 
+import { supabase } from './lib/supabase';
+
 const BASE_URL = '/api';
 
 // Token provider — App.jsx sets this when session changes
 let _getToken = () => null;
 export const setTokenProvider = (fn) => { _getToken = fn; };
+
+let _sessionExpiredHandler = null;
+export const setSessionExpiredHandler = (fn) => { _sessionExpiredHandler = fn; };
 
 function authHeaders(extra = {}) {
   const token = _getToken();
@@ -17,7 +22,28 @@ function authHeaders(extra = {}) {
     : { ...extra };
 }
 
-async function handleResponse(res) {
+async function handleResponse(res, retryRequest = null) {
+  if (res.status === 401) {
+    // Attempt proactive token refresh via Supabase
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+      if (!error && data?.session?.access_token) {
+        if (typeof retryRequest === 'function') {
+          return await retryRequest(data.session.access_token);
+        }
+      }
+    } catch {
+      // Refresh failed
+    }
+
+    // If refresh could not resolve, notify application of expired session
+    if (typeof _sessionExpiredHandler === 'function') {
+      _sessionExpiredHandler();
+    } else {
+      window.dispatchEvent(new CustomEvent('urqen:session-expired'));
+    }
+  }
+
   if (!res.ok) {
     let errorDetail = res.statusText;
     const responseBody = await res.text();

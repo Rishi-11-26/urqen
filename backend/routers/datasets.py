@@ -75,7 +75,67 @@ async def upload_dataset(
             detail=f"File exceeds maximum upload size of {settings.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)} MB.",
         )
 
-    # 4. Save to disk under unique ID
+    if len(content) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty or corrupted (under 5 bytes).",
+        )
+
+    # 4. Strict content & header signature validation
+    header_16 = content[:16]
+    if header_16.startswith(b"MZ"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Security violation: Executable PE binaries (.exe, .dll) are strictly prohibited.",
+        )
+    if header_16.startswith(b"\x7fELF"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Security violation: Binary ELF executables are strictly prohibited.",
+        )
+    if header_16.startswith(b"\x89PNG") or header_16.startswith(b"\xff\xd8\xff") or header_16.startswith(b"GIF8"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid dataset: image formats are not supported tabular datasets.",
+        )
+
+    if ext == ".csv":
+        # Plain text tabular datasets should not contain null bytes in their header chunk
+        sample_chunk = content[:min(len(content), 8192)]
+        if b"\x00" in sample_chunk:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Corrupted file: CSV contains binary null bytes and cannot be parsed as text.",
+            )
+        decoded = False
+        for enc in ("utf-8", "latin-1", "cp1252"):
+            try:
+                sample_chunk.decode(enc)
+                decoded = True
+                break
+            except UnicodeDecodeError:
+                continue
+        if not decoded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid text encoding: CSV file could not be decoded as UTF-8 or Latin-1.",
+            )
+    elif ext == ".xlsx":
+        # .xlsx files are standard ZIP containers starting with PK\x03\x04
+        if not header_16.startswith(b"PK\x03\x04"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file format: file does not match Microsoft Excel (.xlsx) OpenXML container structure.",
+            )
+    elif ext == ".xls":
+        # .xls files are OLE compound documents starting with \xd0\xcf\x11\xe0
+        if not header_16.startswith(b"\xd0\xcf\x11\xe0"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid file format: file does not match Microsoft Excel (.xls) BIFF compound structure.",
+            )
+
+    # 5. Save to disk under unique ID
     dataset_id = str(uuid.uuid4())
     save_filename = f"{dataset_id}_{filename}"
     file_path = settings.DATA_DIR / save_filename
@@ -89,7 +149,7 @@ async def upload_dataset(
             detail=f"Failed to persist file: {str(e)}",
         )
 
-    # 5. Load and validate using previa engine
+    # 6. Load and validate using previa engine
     try:
         df = load_dataset(str(file_path))
         val_report = validate_dataset(df)
