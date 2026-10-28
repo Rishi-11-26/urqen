@@ -304,4 +304,29 @@ export const api = {
     });
     return handleResponse(res);
   },
+
+  getTrialStatus: async () => {
+    const res = await fetch(`${BASE_URL}/account/trials`, {
+      headers: authHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  grantUserRuns: async (userId, { guided_runs = 0, expert_runs = 0, user_email = null } = {}) => {
+    const res = await fetch(`${BASE_URL}/admin/users/${userId}/grant-runs`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ guided_runs, expert_runs, user_email }),
+    });
+    return handleResponse(res);
+  },
+
+  resetUserTrials: async (userId, { user_email = null } = {}) => {
+    const res = await fetch(`${BASE_URL}/admin/users/${userId}/reset-trials`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ user_email }),
+    });
+    return handleResponse(res);
+  },
 };

@@ -45,6 +45,11 @@ export default function AdminView({ currentUserId }) {
   const [maintenance, setMaintenance] = useState({ active: false, message: '' });
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
 
+  // Trial quota state
+  const [grantInput, setGrantInput] = useState({});
+  const [grantingUserId, setGrantingUserId] = useState(null);
+  const [resettingUserId, setResettingUserId] = useState(null);
+
   useEffect(() => {
     loadAdminData();
   }, []);
@@ -143,7 +148,7 @@ export default function AdminView({ currentUserId }) {
       const url = window.URL.createObjectURL(pdf);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'urqen-founder-history.pdf';
+      link.download = 'urqen-developer-history.pdf';
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -188,6 +193,42 @@ export default function AdminView({ currentUserId }) {
       alert(`Failed to update quota: ${err.message}`);
     } finally {
       setQuotaSaving(false);
+    }
+  };
+
+  const handleGrantRuns = async (user) => {
+    const runsToAdd = parseInt(grantInput[user.user_id] ?? 3, 10);
+    if (isNaN(runsToAdd) || runsToAdd <= 0) {
+      alert('Please enter a valid positive number of runs to grant.');
+      return;
+    }
+    setGrantingUserId(user.user_id);
+    try {
+      await api.grantUserRuns(user.user_id, {
+        guided_runs: runsToAdd,
+        expert_runs: runsToAdd,
+        user_email: user.email,
+      });
+      alert(`Granted +${runsToAdd} Guided and +${runsToAdd} Expert runs to ${user.email || user.user_id}! A notification will appear on their dashboard.`);
+      await loadAdminData();
+    } catch (err) {
+      alert(`Failed to grant runs: ${err.message}`);
+    } finally {
+      setGrantingUserId(null);
+    }
+  };
+
+  const handleResetTrials = async (user) => {
+    if (!window.confirm(`Reset free trial counters to 0 for ${user.email || user.user_id}?`)) return;
+    setResettingUserId(user.user_id);
+    try {
+      await api.resetUserTrials(user.user_id, { user_email: user.email });
+      alert(`Reset trial counters for ${user.email || user.user_id}. A notification will appear on their dashboard.`);
+      await loadAdminData();
+    } catch (err) {
+      alert(`Failed to reset trials: ${err.message}`);
+    } finally {
+      setResettingUserId(null);
     }
   };
 
@@ -653,6 +694,7 @@ export default function AdminView({ currentUserId }) {
                 <th style={{ padding: '12px 20px' }}>Account Email</th>
                 <th style={{ padding: '12px 16px' }}>Datasets</th>
                 <th style={{ padding: '12px 16px' }}>Experiments</th>
+                <th style={{ padding: '12px 16px' }}>Trials (G / E)</th>
                 <th style={{ padding: '12px 16px' }}>Storage Consumed</th>
                 <th style={{ padding: '12px 16px' }}>Quota Limit</th>
                 <th style={{ padding: '12px 16px' }}>Capacity Used</th>
@@ -663,7 +705,7 @@ export default function AdminView({ currentUserId }) {
             <tbody>
               {usersList.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <td colSpan={9} style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>
                     No users recorded yet.
                   </td>
                 </tr>
@@ -685,6 +727,14 @@ export default function AdminView({ currentUserId }) {
                       </td>
                       <td style={{ padding: '14px 16px', fontWeight: 600 }}>{u.dataset_count}</td>
                       <td style={{ padding: '14px 16px', fontWeight: 600 }}>{u.experiment_count}</td>
+                      <td style={{ padding: '14px 16px' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
+                          G: {u.guided_used ?? 0} / {u.guided_limit ?? 2}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          E: {u.expert_used ?? 0} / {u.expert_limit ?? 1}
+                        </div>
+                      </td>
                       <td style={{ padding: '14px 16px' }}>
                         <div style={{ fontWeight: 600, color: isAlert ? '#ef4444' : 'var(--text-main)' }}>
                           {fmtBytes(u.total_bytes)}
@@ -755,7 +805,7 @@ export default function AdminView({ currentUserId }) {
                             </button>
                           </div>
                         ) : (
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <button
                               onClick={() => {
                                 setEditingUserId(u.user_id);
@@ -765,8 +815,46 @@ export default function AdminView({ currentUserId }) {
                               style={{ padding: '4px 8px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                             >
                               <Edit2 size={12} />
-                              Adjust Quota
+                              Quota
                             </button>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, paddingLeft: 6, borderLeft: '1px solid var(--border-light)' }}>
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={grantInput[u.user_id] ?? 3}
+                                onChange={(e) => setGrantInput({ ...grantInput, [u.user_id]: e.target.value })}
+                                style={{
+                                  width: 44,
+                                  padding: '3px 4px',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: 4,
+                                  fontSize: 11,
+                                  background: 'var(--bg-input)',
+                                  color: 'var(--text-main)',
+                                  textAlign: 'center',
+                                }}
+                                title="Number of extra runs to grant"
+                              />
+                              <button
+                                onClick={() => handleGrantRuns(u)}
+                                disabled={grantingUserId === u.user_id}
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '3px 7px', fontSize: 11 }}
+                                title="Grant extra Guided and Expert runs to this user"
+                              >
+                                {grantingUserId === u.user_id ? '…' : '+Runs'}
+                              </button>
+                              <button
+                                onClick={() => handleResetTrials(u)}
+                                disabled={resettingUserId === u.user_id}
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '3px 7px', fontSize: 11 }}
+                                title="Reset this user's trial runs to 0"
+                              >
+                                {resettingUserId === u.user_id ? '…' : 'Reset'}
+                              </button>
+                            </div>
                             <button
                               onClick={() => handleRemoveUser(u)}
                               className="btn btn-ghost btn-sm"
@@ -789,6 +877,46 @@ export default function AdminView({ currentUserId }) {
             </tbody>
           </table>
           </div>
+
+          {/* Trial Quota Adjustments Audit Log */}
+          {overview?.trial_audit_log && overview.trial_audit_log.length > 0 && (
+            <div style={{ marginTop: 24, borderTop: '1px solid var(--border-color)', paddingTop: 18 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-main)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Shield size={16} color="var(--primary)" />
+                Trial Quota Adjustments &amp; Reset Audit History ({overview.trial_audit_log.length})
+              </div>
+              <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                      <th style={{ padding: '8px 12px' }}>Timestamp (UTC)</th>
+                      <th style={{ padding: '8px 12px' }}>User Email / ID</th>
+                      <th style={{ padding: '8px 12px' }}>Action</th>
+                      <th style={{ padding: '8px 12px' }}>Guided Bonus</th>
+                      <th style={{ padding: '8px 12px' }}>Expert Bonus</th>
+                      <th style={{ padding: '8px 12px' }}>Adjusted By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overview.trial_audit_log.map((log, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                        <td style={{ padding: '7px 12px', color: 'var(--text-muted)' }}>{log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}</td>
+                        <td style={{ padding: '7px 12px', fontWeight: 600 }}>{log.user_email || log.user_id}</td>
+                        <td style={{ padding: '7px 12px' }}>
+                          <span className={`badge ${log.action === 'RESET_TRIALS' ? 'badge-secondary' : 'badge-primary'}`} style={{ fontSize: 10 }}>
+                            {log.action}
+                          </span>
+                        </td>
+                        <td style={{ padding: '7px 12px' }}>{log.guided_bonus ? `+${log.guided_bonus}` : '—'}</td>
+                        <td style={{ padding: '7px 12px' }}>{log.expert_bonus ? `+${log.expert_bonus}` : '—'}</td>
+                        <td style={{ padding: '7px 12px', color: 'var(--text-subtle)' }}>{log.adjusted_by}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

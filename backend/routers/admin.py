@@ -38,6 +38,9 @@ from backend.storage import (
     get_storage_stats,
     get_maintenance_status,
     set_maintenance_status,
+    grant_user_trial_runs,
+    reset_user_trials,
+    get_trial_audit_log,
     _read_json,
     EXPERIMENTS_META_FILE,
     DATASETS_META_FILE,
@@ -63,6 +66,16 @@ class PurgeAllRequest(BaseModel):
 class MaintenanceToggleRequest(BaseModel):
     active: bool
     message: Optional[str] = None
+
+
+class GrantRunsRequest(BaseModel):
+    guided_runs: int = Field(default=0, ge=0, le=1000)
+    expert_runs: int = Field(default=0, ge=0, le=1000)
+    user_email: Optional[str] = None
+
+
+class ResetTrialsRequest(BaseModel):
+    user_email: Optional[str] = None
 
 
 @router.get("/check")
@@ -197,6 +210,36 @@ async def update_user_quota(
     }
 
 
+@router.post("/users/{user_id}/grant-runs")
+async def admin_grant_user_runs(
+    user_id: str,
+    req: GrantRunsRequest,
+    admin: UserIdentity = Depends(require_admin),
+):
+    """Grants additional experiment trial runs to a user."""
+    return grant_user_trial_runs(
+        user_id=user_id,
+        guided_runs=req.guided_runs,
+        expert_runs=req.expert_runs,
+        user_email=req.user_email,
+        adjusted_by="Developer: Adepu Rishi",
+    )
+
+
+@router.post("/users/{user_id}/reset-trials")
+async def admin_reset_user_trials(
+    user_id: str,
+    req: ResetTrialsRequest,
+    admin: UserIdentity = Depends(require_admin),
+):
+    """Resets trial experiment counters back to 0 for a user."""
+    return reset_user_trials(
+        user_id=user_id,
+        user_email=req.user_email,
+        adjusted_by="Developer: Adepu Rishi",
+    )
+
+
 @router.get("/history.pdf")
 async def export_admin_history_pdf(admin: UserIdentity = Depends(require_admin)):
     """Downloads a founder-only snapshot of account, dataset, and experiment history."""
@@ -262,33 +305,35 @@ async def export_admin_history_pdf(admin: UserIdentity = Depends(require_admin))
         leftMargin=0.4 * inch,
         topMargin=0.45 * inch,
         bottomMargin=0.45 * inch,
-        title="URQEN Founder History Export",
-        author="URQEN",
+        title="URQEN Developer History Export",
+        author="Developer: Adepu Rishi · URQEN",
     )
     story = [
-        Paragraph("URQEN Founder History Export", styles["ReportTitle"]),
+        Paragraph("URQEN Developer History Export", styles["ReportTitle"]),
         Paragraph(
             f"Generated {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} · "
-            "Confidential account and workspace metadata",
+            "Developer: Adepu Rishi · Confidential account, workspace, and trial audit metadata",
             styles["BodyText"],
         ),
         Spacer(1, 14),
         Paragraph("User Accounts & Storage", styles["Heading2"]),
     ]
 
-    user_rows = [[cell(value) for value in ("Email", "User ID", "Datasets", "Experiments", "Storage", "Quota")]]
+    user_rows = [[cell(value) for value in ("Email", "User ID", "Datasets", "Experiments", "Guided Trials", "Expert Trials", "Storage", "Quota")]]
     for user in overview.get("users", []):
         user_rows.append([
             cell(user.get("email") or "Email unavailable"),
             cell(user.get("user_id")),
             cell(user.get("dataset_count", 0)),
             cell(user.get("experiment_count", 0)),
+            cell(f'{user.get("guided_used", 0)} / {user.get("guided_limit", 2)}'),
+            cell(f'{user.get("expert_used", 0)} / {user.get("expert_limit", 1)}'),
             cell(f'{user.get("total_bytes", 0)} bytes'),
             cell(f'{user.get("quota_bytes", 0)} bytes'),
         ])
     user_table = LongTable(
         user_rows,
-        colWidths=[2.15 * inch, 2.0 * inch, 0.75 * inch, 0.8 * inch, 1.1 * inch, 1.1 * inch],
+        colWidths=[1.7 * inch, 1.8 * inch, 0.65 * inch, 0.7 * inch, 0.9 * inch, 0.9 * inch, 0.95 * inch, 0.95 * inch],
         repeatRows=1,
     )
     story.extend([user_table, Spacer(1, 14), Paragraph("Dataset History", styles["Heading2"])])
@@ -338,7 +383,42 @@ async def export_admin_history_pdf(admin: UserIdentity = Depends(require_admin))
         repeatRows=1,
     )
     story.append(experiment_table)
-    for table in (user_table, dataset_table, experiment_table):
+    all_tables = [user_table, dataset_table, experiment_table]
+
+    trial_audit = get_trial_audit_log()
+    if trial_audit:
+        story.extend([Spacer(1, 14), Paragraph("Trial Quota Adjustments & Reset Audit Log", styles["Heading2"])])
+        audit_rows = [[cell(value) for value in (
+            "Timestamp (UTC)",
+            "User Email / ID",
+            "Action",
+            "Guided Bonus",
+            "Expert Bonus",
+            "Total Allowed",
+            "Adjusted By",
+        )]]
+        for entry in trial_audit:
+            guided_allowed = entry.get("total_guided_allowed", "—")
+            expert_allowed = entry.get("total_expert_allowed", "—")
+            allowed_summary = f"{guided_allowed}G / {expert_allowed}E" if guided_allowed != "—" else "—"
+            audit_rows.append([
+                cell(entry.get("timestamp")),
+                cell(entry.get("user_email") or entry.get("user_id")),
+                cell(entry.get("action")),
+                cell(f'+{entry.get("guided_bonus", 0)}' if entry.get("action") == "GRANTED_BONUS_RUNS" else "—"),
+                cell(f'+{entry.get("expert_bonus", 0)}' if entry.get("action") == "GRANTED_BONUS_RUNS" else "—"),
+                cell(allowed_summary),
+                cell(entry.get("adjusted_by")),
+            ])
+        audit_table = LongTable(
+            audit_rows,
+            colWidths=[1.6 * inch, 2.0 * inch, 1.4 * inch, 0.9 * inch, 0.9 * inch, 0.9 * inch, 1.5 * inch],
+            repeatRows=1,
+        )
+        story.append(audit_table)
+        all_tables.append(audit_table)
+
+    for table in all_tables:
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
@@ -354,7 +434,7 @@ async def export_admin_history_pdf(admin: UserIdentity = Depends(require_admin))
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
-        headers={"Content-Disposition": 'attachment; filename="urqen-founder-history.pdf"'},
+        headers={"Content-Disposition": 'attachment; filename="urqen-developer-history.pdf"'},
     )
 
 

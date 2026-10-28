@@ -518,13 +518,23 @@ async def create_and_run_experiment(
     Submits a machine learning experimentation job in Guided or Expert Mode.
     Spawns background training and returns the tracked experiment object.
     """
-    from backend.storage import get_maintenance_status
+    from backend.storage import get_maintenance_status, check_and_increment_trial_quota
     m_status = get_maintenance_status()
     if m_status.get("active") and not settings.is_admin(user.email):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=m_status.get("message", "Platform is currently in maintenance mode. Training is paused."),
         )
+
+    # Enforce trial quota (2 free Guided runs, 1 free Expert run; unlimited for Developer)
+    is_admin_user = settings.is_admin(user.email)
+    try:
+        check_and_increment_trial_quota(user.user_id, mode=req.mode or "guided", is_admin=is_admin_user)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
 
     record = get_dataset_record(req.dataset_id, user.user_id)
     if not record:

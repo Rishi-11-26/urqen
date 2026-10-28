@@ -21,16 +21,34 @@ DATASETS_META_FILE = META_DIR / "datasets.json"
 EXPERIMENTS_META_FILE = META_DIR / "experiments.json"
 SYSTEM_NOTICE_FILE = META_DIR / "system_notice.json"
 MAINTENANCE_FILE = META_DIR / "maintenance.json"
+USER_TRIALS_FILE = META_DIR / "user_trials.json"
+TRIAL_AUDIT_LOG_FILE = META_DIR / "trial_audit_log.json"
+USER_NOTICES_FILE = META_DIR / "user_notices.json"
+
+FREE_GUIDED_LIMIT = 2
+FREE_EXPERT_LIMIT = 1
 
 
 def _read_json(path: pathlib.Path) -> dict:
     if path.exists():
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
         except Exception:
             return {}
     return {}
+
+
+def _read_json_list(path: pathlib.Path) -> list:
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except Exception:
+            return []
+    return []
 
 
 def _write_json(path: pathlib.Path, data: dict) -> None:
@@ -424,6 +442,8 @@ def get_admin_system_overview() -> dict:
         if not user_email:
             user_email = u_id if "@" in u_id else None
 
+        u_trial = get_user_trial_status(u_id)
+
         user_summaries.append({
             "user_id": u_id,
             "email": user_email,
@@ -435,6 +455,12 @@ def get_admin_system_overview() -> dict:
             "quota_bytes": quota_limit,
             "quota_used_pct": round((u_total / quota_limit * 100), 1) if quota_limit > 0 else 0,
             "last_active": latest_act or "N/A",
+            "guided_used": u_trial["guided_used"],
+            "guided_limit": u_trial["guided_limit"],
+            "guided_remaining": u_trial["guided_remaining"],
+            "expert_used": u_trial["expert_used"],
+            "expert_limit": u_trial["expert_limit"],
+            "expert_remaining": u_trial["expert_remaining"],
         })
 
     # Sort users by total storage descending
@@ -452,6 +478,7 @@ def get_admin_system_overview() -> dict:
         "global_capacity_bytes": 1024 * 1024 * 1024,  # 1 GB standard free tier
         "global_capacity_used_pct": round((total_storage_used / (1024 * 1024 * 1024)) * 100, 2),
         "users": user_summaries,
+        "trial_audit_log": get_trial_audit_log(),
     }
 
 
@@ -536,11 +563,229 @@ def delete_user_data(user_id: str, *, delete_auth_account: bool = True) -> dict:
 
 
 def get_current_system_notice(user_id: str) -> Optional[dict]:
-    """Returns a notice only when it targets the signed-in account."""
+    """Returns a notice targeting the signed-in account (user-specific or global)."""
+    # 1. Check user-specific notices first
+    user_notices = _read_json(USER_NOTICES_FILE)
+    if user_id in user_notices:
+        return user_notices[user_id]
+
+    # 2. Check global system notice
     notice = _read_json(SYSTEM_NOTICE_FILE)
     if user_id not in notice.get("target_user_ids", []):
         return None
     return notice
+
+
+def get_user_trial_status(user_id: str, is_admin: bool = False) -> dict:
+    """Returns trial quota status for a user."""
+    trials = _read_json(USER_TRIALS_FILE)
+    u = trials.get(user_id, {})
+    guided_used = int(u.get("guided_used", 0))
+    expert_used = int(u.get("expert_used", 0))
+    guided_bonus = int(u.get("guided_bonus", 0))
+    expert_bonus = int(u.get("expert_bonus", 0))
+
+    guided_limit = FREE_GUIDED_LIMIT + guided_bonus
+    expert_limit = FREE_EXPERT_LIMIT + expert_bonus
+
+    return {
+        "user_id": user_id,
+        "is_admin": is_admin,
+        "guided_used": guided_used,
+        "guided_limit": guided_limit if not is_admin else 999999,
+        "guided_remaining": max(0, guided_limit - guided_used) if not is_admin else 999999,
+        "expert_used": expert_used,
+        "expert_limit": expert_limit if not is_admin else 999999,
+        "expert_remaining": max(0, expert_limit - expert_used) if not is_admin else 999999,
+    }
+
+
+def check_and_increment_trial_quota(user_id: str, mode: str, is_admin: bool = False) -> dict:
+    """
+    Enforces trial limits: 2 free Guided runs, 1 free Expert run.
+    Developer/Admin accounts have unlimited runs.
+    """
+    if is_admin:
+        return {"status": "unlimited", "is_admin": True}
+
+    is_guided = (mode or "guided").lower() == "guided"
+    trials = _read_json(USER_TRIALS_FILE)
+    if user_id not in trials:
+        trials[user_id] = {
+            "guided_used": 0,
+            "expert_used": 0,
+            "guided_bonus": 0,
+            "expert_bonus": 0,
+        }
+
+    u = trials[user_id]
+    guided_used = int(u.get("guided_used", 0))
+    expert_used = int(u.get("expert_used", 0))
+    guided_bonus = int(u.get("guided_bonus", 0))
+    expert_bonus = int(u.get("expert_bonus", 0))
+
+    if is_guided:
+        allowed = FREE_GUIDED_LIMIT + guided_bonus
+        if guided_used >= allowed:
+            raise RuntimeError(
+                f"You have used all {allowed} free Guided mode experiments. "
+                "Contact Developer at urqen0@gmail.com to request additional runs or upgrade to Pro."
+            )
+        u["guided_used"] = guided_used + 1
+    else:
+        allowed = FREE_EXPERT_LIMIT + expert_bonus
+        if expert_used >= allowed:
+            raise RuntimeError(
+                f"You have used your free Expert mode experiment ({allowed} allowed). "
+                "Contact Developer at urqen0@gmail.com to request additional runs or upgrade to Pro."
+            )
+        u["expert_used"] = expert_used + 1
+
+    u["last_run_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    trials[user_id] = u
+    _write_json(USER_TRIALS_FILE, trials)
+    return {
+        "status": "allowed",
+        "mode": "guided" if is_guided else "expert",
+        "guided_used": u["guided_used"],
+        "expert_used": u["expert_used"],
+    }
+
+
+def grant_user_trial_runs(
+    user_id: str,
+    guided_runs: int = 0,
+    expert_runs: int = 0,
+    user_email: Optional[str] = None,
+    adjusted_by: str = "Developer: Adepu Rishi",
+) -> dict:
+    """Grants bonus trial runs to a user, logs to audit history, and alerts user on login."""
+    trials = _read_json(USER_TRIALS_FILE)
+    if user_id not in trials:
+        trials[user_id] = {
+            "guided_used": 0,
+            "expert_used": 0,
+            "guided_bonus": 0,
+            "expert_bonus": 0,
+        }
+
+    u = trials[user_id]
+    u["guided_bonus"] = int(u.get("guided_bonus", 0)) + max(0, guided_runs)
+    u["expert_bonus"] = int(u.get("expert_bonus", 0)) + max(0, expert_runs)
+    u["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    trials[user_id] = u
+    _write_json(USER_TRIALS_FILE, trials)
+
+    # Post an account notice for this user so they see the notification when they open the site
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    notices = _read_json(USER_NOTICES_FILE)
+    bonus_summary = []
+    if guided_runs > 0:
+        bonus_summary.append(f"{guided_runs} Guided")
+    if expert_runs > 0:
+        bonus_summary.append(f"{expert_runs} Expert")
+    bonus_str = " and ".join(bonus_summary) if bonus_summary else "extra"
+
+    notices[user_id] = {
+        "notice_id": f"grant_{user_id}_{int(datetime.datetime.now().timestamp())}",
+        "title": "Extra Free Trials Granted by URQEN! 🚀",
+        "message": (
+            f"URQEN Developer Adepu Rishi has granted {bonus_str} experiment runs to your account. "
+            "You can now continue training your machine learning pipelines."
+        ),
+        "created_at": now_iso,
+        "target_user_ids": [user_id],
+    }
+    _write_json(USER_NOTICES_FILE, notices)
+
+    # Record in audit log
+    audit_log = _read_json_list(TRIAL_AUDIT_LOG_FILE)
+    audit_log.insert(0, {
+        "timestamp": now_iso,
+        "user_id": user_id,
+        "user_email": user_email or "Unknown",
+        "action": "GRANTED_BONUS_RUNS",
+        "guided_bonus": guided_runs,
+        "expert_bonus": expert_runs,
+        "total_guided_allowed": FREE_GUIDED_LIMIT + u["guided_bonus"],
+        "total_expert_allowed": FREE_EXPERT_LIMIT + u["expert_bonus"],
+        "adjusted_by": adjusted_by,
+    })
+    _write_json(TRIAL_AUDIT_LOG_FILE, audit_log[:200])
+
+    return {
+        "success": True,
+        "user_id": user_id,
+        "guided_bonus": u["guided_bonus"],
+        "expert_bonus": u["expert_bonus"],
+        "guided_limit": FREE_GUIDED_LIMIT + u["guided_bonus"],
+        "expert_limit": FREE_EXPERT_LIMIT + u["expert_bonus"],
+    }
+
+
+def reset_user_trials(
+    user_id: str,
+    user_email: Optional[str] = None,
+    adjusted_by: str = "Developer: Adepu Rishi",
+) -> dict:
+    """Resets a user's used trial runs back to 0, logs to audit history, and alerts user on login."""
+    trials = _read_json(USER_TRIALS_FILE)
+    if user_id not in trials:
+        trials[user_id] = {
+            "guided_used": 0,
+            "expert_used": 0,
+            "guided_bonus": 0,
+            "expert_bonus": 0,
+        }
+
+    u = trials[user_id]
+    u["guided_used"] = 0
+    u["expert_used"] = 0
+    u["reset_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    trials[user_id] = u
+    _write_json(USER_TRIALS_FILE, trials)
+
+    # Post an account notice for this user
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    notices = _read_json(USER_NOTICES_FILE)
+    notices[user_id] = {
+        "notice_id": f"reset_{user_id}_{int(datetime.datetime.now().timestamp())}",
+        "title": "Free Trials Reset by URQEN! ✨",
+        "message": (
+            "Your experiment trial counters have been reset by URQEN Developer Adepu Rishi. "
+            "You now have fresh free trials to train models."
+        ),
+        "created_at": now_iso,
+        "target_user_ids": [user_id],
+    }
+    _write_json(USER_NOTICES_FILE, notices)
+
+    # Record in audit log
+    audit_log = _read_json_list(TRIAL_AUDIT_LOG_FILE)
+    audit_log.insert(0, {
+        "timestamp": now_iso,
+        "user_id": user_id,
+        "user_email": user_email or "Unknown",
+        "action": "RESET_TRIALS",
+        "guided_bonus": 0,
+        "expert_bonus": 0,
+        "total_guided_allowed": FREE_GUIDED_LIMIT + int(u.get("guided_bonus", 0)),
+        "total_expert_allowed": FREE_EXPERT_LIMIT + int(u.get("expert_bonus", 0)),
+        "adjusted_by": adjusted_by,
+    })
+    _write_json(TRIAL_AUDIT_LOG_FILE, audit_log[:200])
+
+    return {
+        "success": True,
+        "user_id": user_id,
+        "guided_used": 0,
+        "expert_used": 0,
+    }
+
+
+def get_trial_audit_log() -> list:
+    """Returns trial quota adjustment audit records."""
+    return _read_json_list(TRIAL_AUDIT_LOG_FILE)
 
 
 def get_maintenance_status() -> dict:

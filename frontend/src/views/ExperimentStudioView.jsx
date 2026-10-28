@@ -105,6 +105,32 @@ export default function ExperimentStudioView({
   const [activeExpId,         setActiveExpId]         = useState(null);
   const [runProgressMessage,  setRunProgressMessage]  = useState('');
   const [errorMessage,        setErrorMessage]        = useState(null);
+  const [trialStatus,         setTrialStatus]         = useState(null);
+
+  const loadTrials = async () => {
+    try {
+      const res = await api.getTrialStatus();
+      setTrialStatus(res);
+    } catch (err) {
+      console.warn('Could not load trial status:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadTrials();
+  }, [mode]);
+
+  const isGuided = mode === 'guided';
+  const isAdmin = trialStatus?.is_admin === true;
+  const remainingRuns = isAdmin
+    ? 999999
+    : isGuided
+    ? (trialStatus?.guided_remaining ?? 2)
+    : (trialStatus?.expert_remaining ?? 1);
+  const totalLimit = isGuided
+    ? (trialStatus?.guided_limit ?? 2)
+    : (trialStatus?.expert_limit ?? 1);
+  const isExhausted = !isAdmin && remainingRuns <= 0;
 
   useEffect(() => {
     if (activeDataset?.dataset_id) {
@@ -272,10 +298,12 @@ export default function ExperimentStudioView({
     try {
       const resp = await api.createExperiment(payload);
       setActiveExpId(resp.experiment_id);
+      loadTrials();
     } catch (err) {
       setRunning(false);
       setIsBenchmarking?.(false);
       setErrorMessage(err.message);
+      loadTrials();
     }
   };
 
@@ -821,7 +849,24 @@ export default function ExperimentStudioView({
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Trial Quota Status Badge */}
+          <div style={{ marginRight: 4 }}>
+            {isAdmin ? (
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: 'rgba(0, 229, 195, 0.12)', color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>
+                Developer Account · Unlimited Runs
+              </span>
+            ) : isExhausted ? (
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', fontFamily: 'var(--font-mono)' }}>
+                {isGuided ? 'Guided' : 'Expert'} Limit Reached ({isGuided ? trialStatus?.guided_used || 2 : trialStatus?.expert_used || 1}/{totalLimit} used)
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, background: 'var(--bg-subtle)', color: 'var(--text-muted)', border: '1px solid var(--border-light)', fontFamily: 'var(--font-mono)' }}>
+                {isGuided ? 'Guided' : 'Expert'} Mode: <strong style={{ color: 'var(--text-main)' }}>{remainingRuns} of {totalLimit}</strong> free trials left
+              </span>
+            )}
+          </div>
+
           {running && (
             <button
               className="btn btn-danger btn-lg"
@@ -836,19 +881,48 @@ export default function ExperimentStudioView({
           <button
             className="btn btn-primary btn-lg"
             onClick={handleLaunch}
-            disabled={running || !activeDataset || maintenanceMode}
+            disabled={running || !activeDataset || maintenanceMode || isExhausted}
             style={{
               flexShrink: 0,
-              cursor: maintenanceMode ? 'not-allowed' : undefined,
-              opacity: maintenanceMode ? 0.6 : 1,
+              cursor: (maintenanceMode || isExhausted) ? 'not-allowed' : undefined,
+              opacity: (maintenanceMode || isExhausted) ? 0.6 : 1,
             }}
-            title={maintenanceMode ? 'Training is temporarily disabled while platform maintenance is active.' : undefined}
+            title={
+              maintenanceMode
+                ? 'Training is temporarily disabled while platform maintenance is active.'
+                : isExhausted
+                ? `You have reached the free ${isGuided ? 'Guided' : 'Expert'} trial limit.`
+                : undefined
+            }
           >
             {running ? <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : <Play size={16} />}
-            {running ? 'Benchmarking…' : maintenanceMode ? 'Maintenance Active' : 'Launch Experiment'}
+            {running
+              ? 'Benchmarking…'
+              : maintenanceMode
+              ? 'Maintenance Active'
+              : isExhausted
+              ? 'Trial Limit Reached'
+              : 'Launch Experiment'}
           </button>
         </div>
       </div>
+
+      {isExhausted && (
+        <div className="card" style={{ marginTop: 14, padding: '14px 18px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <AlertCircle size={20} color="#ef4444" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#ef4444', marginBottom: 4 }}>
+                Free {isGuided ? 'Guided' : 'Expert'} Mode Trials Completed ({totalLimit} of {totalLimit} used)
+              </div>
+              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
+                To maintain high-performance compute speeds for all users, free tier experiment runs are limited.
+                Need extra runs for your college project, research paper, or business? Email URQEN Developer at <strong>urqen0@gmail.com</strong> or contact us to grant additional runs.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {running && (
         <div className="alert alert-info" style={{ marginTop: 14 }}>
