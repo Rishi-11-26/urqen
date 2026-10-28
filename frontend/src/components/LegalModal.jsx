@@ -196,14 +196,16 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
                 <CheckCircle size={15} /> 4. Prohibited Uses & Account Termination
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-                Users agree not to upload malicious scripts, corrupted executable payloads, unlawfully harvested personal identifiable information (PII), or confidential data in violation of third-party non-disclosure agreements. URQEN maintains rate limits and dataset size caps (up to 50 MB / 100,000 rows on standard tier) to protect system stability for all tenants. URQEN reserves the right to suspend or permanently terminate accounts that violate these terms, upload harmful content, or abuse platform resources without prior notice.
+                Users agree not to upload malicious scripts, corrupted executable payloads, unlawfully harvested personal identifiable information (PII), or confidential data in violation of third-party non-disclosure agreements. URQEN maintains rate limits and dataset size caps (up to 50 MB / 50,000 rows on standard tier) to protect system stability for all tenants. URQEN reserves the right to suspend or permanently terminate accounts that violate these terms, upload harmful content, or abuse platform resources without prior notice.
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
-                <CheckCircle size={15} /> 5. Cascading Erasure & Right to Purge
+                <CheckCircle size={15} /> 5. Storage, Retention & Right to Purge
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-                Users may delete individual datasets, individual experiments, or all historical execution records at any time. When deletion is triggered, URQEN executes cascading cleanup removing physical files from disk partitions and database metadata records.
+                <strong>Datasets &amp; Historical Metrics:</strong> Uploaded tabular datasets and historical experiment results (leaderboard scores, cross-validation metrics, feature importances, and diagnostic charts) remain stored in your workspace indefinitely until you choose to delete them.<br /><br />
+                <strong>Model Bundle Retention:</strong> On the Free tier, heavy binary trained model files (<code>.joblib</code> pipelines) are retained and available for download for <strong>14 days</strong> following training. Users are encouraged to download their trained model bundle and Python inference script to their local environment within this window. Active paid subscribers receive higher storage quotas (e.g. 250 MB+) and extended model artifact retention.<br /><br />
+                <strong>Right to Purge:</strong> Users maintain the right to delete individual datasets, experiments, or their entire workspace history at any time. When deletion is triggered, URQEN executes cascading cleanup removing physical files from disk partitions and database metadata records.
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
