@@ -165,8 +165,8 @@ def test_get_all_auth_users_paginates_and_strict_mode_surfaces_failure(monkeypat
     monkeypatch.setattr(supabase_client, "get_admin_client", lambda: fake_client)
 
     users = supabase_client.get_all_auth_users(strict=True)
-    assert users["user-0"] == "user0@example.test"
-    assert users["user-last"] == "last@example.test"
+    assert users["user-0"]["email"] == "user0@example.test"
+    assert users["user-last"]["email"] == "last@example.test"
     assert len(users) == 1001
     assert fake_client.auth.admin.calls == [(1, 1000), (2, 1000)]
 

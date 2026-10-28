@@ -333,7 +333,7 @@ def clear_urqen_storage_objects() -> dict:
 def get_all_auth_users(*, strict: bool = False) -> dict:
     """
     Fetches all registered users from Supabase Auth admin API.
-    Returns mapping of {user_id: email}.
+    Returns mapping of {user_id: {"email": str, "created_at": str}}.
     """
     client = get_admin_client()
     if not client:
@@ -350,8 +350,12 @@ def get_all_auth_users(*, strict: bool = False) -> dict:
             for user in users_list:
                 user_id = getattr(user, "id", None) or (user.get("id") if isinstance(user, dict) else None)
                 email = getattr(user, "email", None) or (user.get("email") if isinstance(user, dict) else None)
+                created_at = getattr(user, "created_at", None) or (user.get("created_at") if isinstance(user, dict) else None)
                 if user_id:
-                    user_map[str(user_id)] = email or ""
+                    user_map[str(user_id)] = {
+                        "email": email or "",
+                        "created_at": str(created_at) if created_at else "",
+                    }
             if len(users_list) < page_size:
                 break
             page += 1

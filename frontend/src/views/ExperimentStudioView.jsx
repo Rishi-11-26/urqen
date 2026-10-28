@@ -917,7 +917,7 @@ export default function ExperimentStudioView({
               </div>
               <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
                 To maintain high-performance compute speeds for all users, free tier experiment runs are limited.
-                Need extra runs for your college project, research paper, or business? Email URQEN Developer at <strong>urqen0@gmail.com</strong> or contact us to grant additional runs.
+                For subscription plans or any related queries, contact us at <strong>urqen0@gmail.com</strong>.
               </p>
             </div>
           </div>

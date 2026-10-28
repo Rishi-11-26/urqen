@@ -31,12 +31,15 @@ def sample_csv_bytes():
 
 @pytest.fixture
 def local_api_user():
+    from backend.storage import reset_user_trials
+    reset_user_trials("local_dev_user")
     app.dependency_overrides[get_current_user] = lambda: UserIdentity(
         user_id="local_dev_user",
         email="dev@urqen.local",
     )
     yield
     app.dependency_overrides.pop(get_current_user, None)
+    reset_user_trials("local_dev_user")
 
 
 def test_health_check():

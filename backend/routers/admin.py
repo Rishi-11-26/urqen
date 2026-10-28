@@ -257,18 +257,24 @@ async def export_admin_history_pdf(admin: UserIdentity = Depends(require_admin))
                 raise RuntimeError("Supabase admin client is unavailable.")
             auth_users = get_all_auth_users(strict=True)
             overview_users = {user.get("user_id"): user for user in overview.get("users", [])}
-            for user_id, email in auth_users.items():
+            for user_id, info in auth_users.items():
+                email = info.get("email", "") if isinstance(info, dict) else str(info)
+                created_at = info.get("created_at", "") if isinstance(info, dict) else ""
                 if user_id not in overview_users:
                     overview_users[user_id] = {
                         "user_id": user_id,
                         "email": email,
+                        "created_at": created_at,
                         "dataset_count": 0,
                         "experiment_count": 0,
                         "total_bytes": 0,
                         "quota_bytes": 0,
                     }
-                elif not overview_users[user_id].get("email"):
-                    overview_users[user_id]["email"] = email
+                else:
+                    if not overview_users[user_id].get("email"):
+                        overview_users[user_id]["email"] = email
+                    if not overview_users[user_id].get("created_at"):
+                        overview_users[user_id]["created_at"] = created_at
             overview["users"] = list(overview_users.values())
         datasets = list_all_datasets_admin()
         experiments = list_all_experiments_admin()
@@ -319,7 +325,7 @@ async def export_admin_history_pdf(admin: UserIdentity = Depends(require_admin))
         Paragraph("User Accounts & Storage", styles["Heading2"]),
     ]
 
-    user_rows = [[cell(value) for value in ("Email", "User ID", "Datasets", "Experiments", "Guided Trials", "Expert Trials", "Storage", "Quota")]]
+    user_rows = [[cell(value) for value in ("Email", "User ID", "Datasets", "Experiments", "Guided Trials", "Expert Trials", "Storage", "Quota", "Account Created")]]
     for user in overview.get("users", []):
         user_rows.append([
             cell(user.get("email") or "Email unavailable"),
@@ -330,10 +336,11 @@ async def export_admin_history_pdf(admin: UserIdentity = Depends(require_admin))
             cell(f'{user.get("expert_used", 0)} / {user.get("expert_limit", 1)}'),
             cell(f'{user.get("total_bytes", 0)} bytes'),
             cell(f'{user.get("quota_bytes", 0)} bytes'),
+            cell(user.get("created_at") or "—"),
         ])
     user_table = LongTable(
         user_rows,
-        colWidths=[1.7 * inch, 1.8 * inch, 0.65 * inch, 0.7 * inch, 0.9 * inch, 0.9 * inch, 0.95 * inch, 0.95 * inch],
+        colWidths=[1.7 * inch, 1.8 * inch, 0.65 * inch, 0.7 * inch, 0.9 * inch, 0.9 * inch, 0.95 * inch, 0.95 * inch, 1.4 * inch],
         repeatRows=1,
     )
     story.extend([user_table, Spacer(1, 14), Paragraph("Dataset History", styles["Heading2"])])

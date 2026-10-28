@@ -116,7 +116,7 @@ def test_grant_user_trial_runs_and_notice():
     notice = get_current_system_notice(user_id)
     assert notice is not None
     assert "Extra Free Trials Granted" in notice["title"]
-    assert "Adepu Rishi" in notice["message"]
+    assert "URQEN has granted" in notice["message"]
 
     # Audit log was recorded
     audit = get_trial_audit_log()

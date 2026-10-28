@@ -427,8 +427,10 @@ def get_admin_system_overview() -> dict:
         u_total = u_ds_bytes + u_art_bytes
         quota_limit = get_user_quota_limit(u_id)
 
-        # Determine user email
-        user_email = auth_users.get(u_id)
+        # Determine user email and account creation time
+        auth_info = auth_users.get(u_id)
+        user_email = auth_info.get("email") if isinstance(auth_info, dict) else auth_info
+        user_created_at = auth_info.get("created_at") if isinstance(auth_info, dict) else None
         if not user_email:
             for d in u_datasets:
                 if d.get("user_email"):
@@ -447,6 +449,7 @@ def get_admin_system_overview() -> dict:
         user_summaries.append({
             "user_id": u_id,
             "email": user_email,
+            "created_at": user_created_at,
             "dataset_count": len(u_datasets),
             "experiment_count": len(u_experiments),
             "dataset_bytes": u_ds_bytes,
@@ -688,9 +691,9 @@ def grant_user_trial_runs(
 
     notices[user_id] = {
         "notice_id": f"grant_{user_id}_{int(datetime.datetime.now().timestamp())}",
-        "title": "Extra Free Trials Granted by URQEN! 🚀",
+        "title": "Extra Free Trials Granted by URQEN",
         "message": (
-            f"URQEN Developer Adepu Rishi has granted {bonus_str} experiment runs to your account. "
+            f"URQEN has granted {bonus_str} additional experiment runs to your account. "
             "You can now continue training your machine learning pipelines."
         ),
         "created_at": now_iso,
@@ -750,9 +753,9 @@ def reset_user_trials(
     notices = _read_json(USER_NOTICES_FILE)
     notices[user_id] = {
         "notice_id": f"reset_{user_id}_{int(datetime.datetime.now().timestamp())}",
-        "title": "Free Trials Reset by URQEN! ✨",
+        "title": "Free Trials Reset by URQEN",
         "message": (
-            "Your experiment trial counters have been reset by URQEN Developer Adepu Rishi. "
+            "Your experiment trial counters have been reset by URQEN. "
             "You now have fresh free trials to train models."
         ),
         "created_at": now_iso,
