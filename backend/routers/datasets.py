@@ -152,6 +152,15 @@ async def upload_dataset(
     # 6. Load and validate using previa engine
     try:
         df = load_dataset(str(file_path))
+        if len(df) > 50000 and not settings.is_admin(user.email):
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Dataset contains {len(df):,} rows. To maintain compute server stability and memory limits on the standard tier, "
+                    "the maximum supported size is 50,000 rows. Please downsample your dataset or contact urqen0@gmail.com for higher capacity."
+                ),
+            )
         val_report = validate_dataset(df)
         if not val_report["is_valid"]:
             file_path.unlink(missing_ok=True)

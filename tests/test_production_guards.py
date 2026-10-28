@@ -114,3 +114,19 @@ def test_concurrent_experiment_spamming_blocked(test_user, tmp_path):
         assert "already actively running" in resp.json()["detail"]
     finally:
         delete_experiment(active_exp_id, test_user.user_id)
+
+
+def test_reject_dataset_exceeding_50k_rows(test_user, monkeypatch):
+    """Datasets with > 50,000 rows must be rejected to prevent Render 512MB RAM exhaustion."""
+    import pandas as pd
+    from backend.routers import datasets as datasets_router
+
+    # Mock load_dataset to return a fake 50,001 row dataframe
+    fake_large_df = pd.DataFrame({"colA": [1] * 50001, "target": [0] * 50001})
+    monkeypatch.setattr(datasets_router, "load_dataset", lambda _: fake_large_df)
+
+    sample_csv = b"colA,target\r\n1,0\r\n1,0\r\n"
+    files = {"file": ("big_data.csv", sample_csv, "text/csv")}
+    resp = client.post("/api/datasets/upload", files=files)
+    assert resp.status_code == 400
+    assert "maximum supported size is 50,000 rows" in resp.json()["detail"]

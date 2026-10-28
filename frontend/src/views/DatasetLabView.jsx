@@ -111,7 +111,7 @@ export default function DatasetLabView({
           <div className="card-header">
             <div>
               <div className="card-title">Upload Dataset</div>
-              <div className="card-subtitle">CSV · TSV · XLSX · XLS · up to 50 MB</div>
+              <div className="card-subtitle">CSV · TSV · XLSX · XLS · Up to 50,000 rows (50 MB)</div>
             </div>
           </div>
 
