@@ -223,8 +223,15 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
                 <CheckCircle size={15} /> 8. Governing Law & Jurisdiction
               </div>
-              <p style={{ color: 'var(--text-muted)', marginBottom: 0 }}>
+              <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
                 These Terms of Service are governed by and construed in accordance with the laws of India. Any disputes arising from or relating to these terms shall be subject to the exclusive jurisdiction of the courts of Hyderabad, Telangana, India.
+              </p>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--primary)', fontWeight: 700 }}>
+                <CheckCircle size={15} /> 9. Contact & Support
+              </div>
+              <p style={{ color: 'var(--text-muted)', marginBottom: 0 }}>
+                For inquiries, feedback, or support regarding URQEN or these Terms, please contact <code>urqen0@gmail.com</code>.
               </p>
             </div>
           ) : (
@@ -277,10 +284,10 @@ export default function LegalModal({ isOpen, onClose, initialTab = 'terms' }) {
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, color: 'var(--success)', fontWeight: 700 }}>
-                <CheckCircle size={15} /> 5. Data Subject Rights (GDPR / CCPA / DPDP)
+                <CheckCircle size={15} /> 5. Data Subject Rights & Contact
               </div>
               <p style={{ color: 'var(--text-muted)', marginBottom: 0 }}>
-                You have the full right to view, export, or permanently erase all stored records. Initiating dataset or experiment deletion removes files from server disks immediately.
+                You have the full right to view, export, or permanently erase all stored records. Initiating dataset or experiment deletion removes files from server disks immediately. For privacy inquiries, data requests, or account assistance, contact <code>urqen0@gmail.com</code>.
               </p>
             </div>
           )}

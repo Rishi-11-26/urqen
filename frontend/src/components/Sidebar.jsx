@@ -55,7 +55,7 @@ export default function Sidebar({ currentTab, setCurrentTab, storageQuota, backe
             <button
               className={`nav-item${currentTab === 'admin' ? ' active' : ''}`}
               onClick={() => setCurrentTab('admin')}
-              title="Founder Admin Console"
+              title="Developer Console"
             >
               <span className="nav-item-icon"><Shield size={16} color="var(--primary)" /></span>
               Admin Console
@@ -71,7 +71,7 @@ export default function Sidebar({ currentTab, setCurrentTab, storageQuota, backe
                   fontFamily: 'var(--font-mono)',
                 }}
               >
-                Founder
+                Developer
               </span>
             </button>
           </>

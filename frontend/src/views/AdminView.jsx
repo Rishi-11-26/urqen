@@ -332,7 +332,7 @@ export default function AdminView({ currentUserId }) {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
-                Founder Control Console
+                Developer Console
               </h2>
               <span
                 style={{
@@ -344,7 +344,7 @@ export default function AdminView({ currentUserId }) {
                   color: 'var(--primary)',
                 }}
               >
-                Super Admin
+                Developer: Adepu Rishi
               </span>
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
