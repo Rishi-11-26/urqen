@@ -44,3 +44,9 @@ storage/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Marketing assets (kept locally, never committed)
+*.jpg
+*.jpeg
+*.png
+!frontend/public/**
