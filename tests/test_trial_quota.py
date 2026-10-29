@@ -53,7 +53,7 @@ def test_guided_mode_quota_limit():
     # Run 3 - should fail (max 2 runs)
     with pytest.raises(RuntimeError) as exc_info:
         check_and_increment_trial_quota(user_id, mode="guided", is_admin=False)
-    assert "You have used all 2 free Guided mode experiments" in str(exc_info.value)
+    assert "Free monthly quota reached (2 Guided runs/month)" in str(exc_info.value)
 
 
 def test_expert_mode_quota_limit():
@@ -67,7 +67,7 @@ def test_expert_mode_quota_limit():
     # Run 2 - should fail (max 1 run)
     with pytest.raises(RuntimeError) as exc_info:
         check_and_increment_trial_quota(user_id, mode="expert", is_admin=False)
-    assert "You have used your free Expert mode experiment" in str(exc_info.value)
+    assert "Free monthly quota reached (1 Expert run/month)" in str(exc_info.value)
 
 
 def test_admin_developer_unlimited_bypass():

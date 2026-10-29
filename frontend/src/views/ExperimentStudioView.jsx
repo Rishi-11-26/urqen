@@ -858,11 +858,11 @@ export default function ExperimentStudioView({
               </span>
             ) : isExhausted ? (
               <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', fontFamily: 'var(--font-mono)' }}>
-                {isGuided ? 'Guided' : 'Expert'} Limit Reached ({isGuided ? trialStatus?.guided_used || 2 : trialStatus?.expert_used || 1}/{totalLimit} used)
+                {isGuided ? 'Guided' : 'Expert'} Limit Reached ({isGuided ? trialStatus?.guided_used || 2 : trialStatus?.expert_used || 1}/{totalLimit} used this month)
               </span>
             ) : (
               <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 20, background: 'var(--bg-subtle)', color: 'var(--text-muted)', border: '1px solid var(--border-light)', fontFamily: 'var(--font-mono)' }}>
-                {isGuided ? 'Guided' : 'Expert'} Mode: <strong style={{ color: 'var(--text-main)' }}>{remainingRuns} of {totalLimit}</strong> free trials left
+                {isGuided ? 'Guided' : 'Expert'} Mode: <strong style={{ color: 'var(--text-main)' }}>{remainingRuns} of {totalLimit}</strong> free runs left this month
               </span>
             )}
           </div>
@@ -908,17 +908,29 @@ export default function ExperimentStudioView({
       </div>
 
       {isExhausted && (
-        <div className="card" style={{ marginTop: 14, padding: '14px 18px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-            <AlertCircle size={20} color="#ef4444" style={{ flexShrink: 0, marginTop: 2 }} />
-            <div>
-              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#ef4444', marginBottom: 4 }}>
-                Free {isGuided ? 'Guided' : 'Expert'} Mode Trials Completed ({totalLimit} of {totalLimit} used)
+        <div className="card" style={{ marginTop: 14, padding: '16px 20px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 'var(--radius-md)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <AlertCircle size={22} color="#ef4444" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#ef4444', marginBottom: 6 }}>
+                Monthly Free {isGuided ? 'Guided' : 'Expert'} Quota Reached ({totalLimit}/{totalLimit} used)
               </div>
-              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>
-                To maintain high-performance compute speeds for all users, free tier experiment runs are limited.
-                For subscription plans or any related queries, contact us at <strong>urqen0@gmail.com</strong>.
+              <p style={{ fontSize: 13, color: 'var(--text-main)', margin: '0 0 10px', lineHeight: 1.5 }}>
+                Need more experiment runs for a project submission or deadline?
               </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 12 }}>
+                <div style={{ background: 'var(--bg-subtle)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5, color: '#f59e0b', marginBottom: 2 }}>⚡ ₹99 Top-Up Pack</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>+10 Instant Runs · No subscription required · Ideal for deadline bursts</div>
+                </div>
+                <div style={{ background: 'var(--bg-subtle)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--primary)', marginBottom: 2 }}>🎓 ₹249/mo Student Plan</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>30 runs/mo · Python Code Export · Model Download · Extended Artifacts</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Instant UPI activation: Send your registered email to <strong style={{ color: 'var(--text-main)' }}>urqen0@gmail.com</strong>
+              </div>
             </div>
           </div>
         </div>

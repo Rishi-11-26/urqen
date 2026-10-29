@@ -193,7 +193,17 @@ async def download_model_bundle(
     experiment_id: str,
     user: UserIdentity = Depends(get_current_user),
 ):
-    """Downloads the deployable .joblib model bundle."""
+    """Downloads the deployable .joblib model bundle (Pro feature)."""
+    from backend.storage import is_user_paid
+    if not is_user_paid(user.user_id, settings.is_admin(user.email)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Model Bundle (.joblib) download is a Pro feature. Upgrade to Student Plan (₹249/mo) "
+                "or get the ₹99 Top-Up Pack to download deployable model pipelines. Contact urqen0@gmail.com for instant activation."
+            ),
+        )
+
     exp = get_experiment_record(experiment_id, user.user_id)
     if not exp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found or access denied.")
@@ -203,6 +213,76 @@ async def download_model_bundle(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Model bundle not found.")
 
     return FileResponse(path=path_str, media_type="application/octet-stream", filename=f"previa_model_{experiment_id[:8]}.joblib")
+
+
+@router.get("/{experiment_id}/code-export")
+async def export_python_code(
+    experiment_id: str,
+    user: UserIdentity = Depends(get_current_user),
+):
+    """
+    Exports a standalone scikit-learn Python script reproducing the winning model pipeline.
+    Pro users get full code; free users receive an illustrative preview with unlock details.
+    """
+    from previa.export.code_generator import generate_pipeline_python_code
+    from backend.storage import is_user_paid
+
+    exp = get_experiment_record(experiment_id, user.user_id)
+    if not exp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found or access denied.")
+
+    full_code = generate_pipeline_python_code(exp)
+    paid = is_user_paid(user.user_id, settings.is_admin(user.email))
+
+    if not paid:
+        preview_lines = "\n".join(full_code.splitlines()[:16])
+        return {
+            "experiment_id": experiment_id,
+            "is_locked": True,
+            "best_model": exp.get("best_model", "Model"),
+            "preview_code": preview_lines,
+            "message": (
+                "Python code export is a Pro feature. Unlock the full scikit-learn reproduction "
+                "script with the ₹99 Top-Up Pack or Student Plan (₹249/mo). Contact urqen0@gmail.com for instant activation."
+            ),
+        }
+
+    return {
+        "experiment_id": experiment_id,
+        "is_locked": False,
+        "best_model": exp.get("best_model", "Model"),
+        "filename": f"pipeline_{exp.get('best_model', 'model').lower()}_{experiment_id[:8]}.py",
+        "code": full_code,
+    }
+
+
+@router.get("/{experiment_id}/code-export/download")
+async def download_python_code_file(
+    experiment_id: str,
+    user: UserIdentity = Depends(get_current_user),
+):
+    """Downloads the standalone Python reproduction script as a .py file (Pro feature)."""
+    from previa.export.code_generator import generate_pipeline_python_code
+    from backend.storage import is_user_paid
+    from fastapi.responses import Response
+
+    exp = get_experiment_record(experiment_id, user.user_id)
+    if not exp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found or access denied.")
+
+    if not is_user_paid(user.user_id, settings.is_admin(user.email)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Python code export download is a Pro feature. Upgrade with ₹99 Top-Up or Student Plan (₹249/mo). Contact urqen0@gmail.com.",
+        )
+
+    full_code = generate_pipeline_python_code(exp)
+    filename = f"urqen_pipeline_{exp.get('best_model', 'model').lower()}_{experiment_id[:8]}.py"
+    return Response(
+        content=full_code,
+        media_type="text/x-python",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{experiment_id}/preprocessed-dataset")
@@ -238,8 +318,18 @@ async def predict_with_model(
 ):
     """
     Live inference endpoint: Loads the trained model bundle and generates
-    leakage-safe predictions on an uploaded unlabelled CSV dataset.
+    leakage-safe predictions on an uploaded unlabelled CSV dataset (Pro feature).
     """
+    from backend.storage import is_user_paid
+    if not is_user_paid(user.user_id, settings.is_admin(user.email)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Model inference on new test datasets is a Pro feature. Upgrade to Student Plan (₹249/mo) "
+                "or get the ₹99 Top-Up Pack to run predictions on unlabelled datasets. Contact urqen0@gmail.com for instant activation."
+            ),
+        )
+
     exp = get_experiment_record(experiment_id, user.user_id)
     if not exp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found or access denied.")

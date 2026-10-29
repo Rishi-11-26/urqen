@@ -43,7 +43,14 @@ async def rate_limit_middleware(request: Request, call_next):
     if request.url.path in ("/api/health", "/api/maintenance", "/api/presence/heartbeat"):
         return await call_next(request)
 
-    client_ip = request.client.host if request.client else "unknown"
+    # Extract real client IP (handle Render proxy / reverse proxy via X-Forwarded-For)
+    forwarded = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    elif request.headers.get("x-real-ip"):
+        client_ip = request.headers.get("x-real-ip").strip()
+    else:
+        client_ip = request.client.host if request.client else "unknown"
 
     # In automated test environments (pytest testclient), bypass rate limiting
     if client_ip in ("testclient", "127.0.0.1", "localhost") and os.environ.get("PYTEST_CURRENT_TEST"):

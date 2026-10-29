@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import {
   Award, FileText, Package, Download, ClipboardCheck,
-  BarChart3, TrendingUp,
+  BarChart3, TrendingUp, Code2, PlayCircle, Lock, Sparkles,
 } from 'lucide-react';
 import ConfusionMatrix from '../components/ConfusionMatrix';
 import FeatureImportanceChart from '../components/FeatureImportanceChart';
 import ModelComparisonChart from '../components/ModelComparisonChart';
+import ProUpgradeModal from '../components/ProUpgradeModal';
+import CodeExportModal from '../components/CodeExportModal';
+import TestPredictModal from '../components/TestPredictModal';
 import { api } from '../api';
 
 const fmtNum = (val, digits = 4, fallback = '—') => {
@@ -45,6 +49,61 @@ export default function ResultsView({ experiment, onSelectAnotherExperiment }) {
 
   const metricLabel = primaryMetric.toUpperCase();
 
+  const [showProModal, setShowProModal] = useState(false);
+  const [proModalInfo, setProModalInfo] = useState({ title: '', desc: '' });
+  const [codeData, setCodeData] = useState(null);
+  const [showCodeModal, setShowCodeModal] = useState(false);
+  const [loadingCode, setLoadingCode] = useState(false);
+  const [showPredictModal, setShowPredictModal] = useState(false);
+
+  const triggerProUpgrade = (title, desc) => {
+    setProModalInfo({ title, desc });
+    setShowProModal(true);
+  };
+
+  const handleDownloadBundle = async (e) => {
+    e.preventDefault();
+    try {
+      const url = api.downloadBundleUrl(experiment_id);
+      const res = await fetch(url);
+      if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        triggerProUpgrade(
+          'Model Bundle (.joblib) is a Pro Feature',
+          data.detail || 'Deployable .joblib pipelines are reserved for active paid subscribers and Top-Up users.'
+        );
+        return;
+      }
+      if (!res.ok) {
+        alert('Could not download model bundle. It may have expired under the 14-day retention window.');
+        return;
+      }
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `urqen_model_${experiment_id.slice(0, 8)}.joblib`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleOpenCodeExport = async () => {
+    setLoadingCode(true);
+    try {
+      const res = await api.getCodeExport(experiment_id);
+      setCodeData(res);
+      setShowCodeModal(true);
+    } catch (err) {
+      alert(`Could not generate code export: ${err.message}`);
+    } finally {
+      setLoadingCode(false);
+    }
+  };
+
   return (
     <div className="view-container anim-fade">
       <div className="results-intro">
@@ -80,8 +139,8 @@ export default function ResultsView({ experiment, onSelectAnotherExperiment }) {
           </div>
         </div>
 
-        {/* Downloads */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+        {/* Action Controls & Downloads */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, minWidth: 170 }}>
           <a
             href={api.downloadReportUrl(experiment_id)}
             target="_blank" rel="noreferrer"
@@ -90,25 +149,34 @@ export default function ResultsView({ experiment, onSelectAnotherExperiment }) {
           >
             <FileText size={14} color="#00e5c3" /> HTML Report
           </a>
-          {resObj.evaluation_available && (
-            <a
-            href={api.downloadEvaluationUrl(experiment_id)}
-            target="_blank" rel="noreferrer"
+          <button
+            type="button"
             className="btn"
-            style={{ background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: 12.5 }}
-            title="Download the stored holdout predictions, metrics, split audit, and verification results"
+            onClick={handleOpenCodeExport}
+            disabled={loadingCode}
+            style={{ background: 'rgba(234, 179, 8, 0.12)', color: '#fef08a', border: '1px solid rgba(234, 179, 8, 0.3)', fontSize: 12.5, justifyContent: 'flex-start' }}
+            title="Export scikit-learn reproduction code for project report"
           >
-            <ClipboardCheck size={14} color="#fbbf24" /> Evaluation JSON
-            </a>
-          )}
-          <a
-            href={api.downloadBundleUrl(experiment_id)}
-            target="_blank" rel="noreferrer"
+            <Code2 size={14} color="#eab308" /> Python Code
+          </button>
+          <button
+            type="button"
             className="btn"
-            style={{ background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: 12.5 }}
+            onClick={handleDownloadBundle}
+            style={{ background: 'rgba(56, 189, 248, 0.12)', color: '#bae6fd', border: '1px solid rgba(56, 189, 248, 0.3)', fontSize: 12.5, justifyContent: 'flex-start' }}
+            title="Download deployable .joblib model bundle"
           >
             <Package size={14} color="#38bdf8" /> Model Bundle
-          </a>
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setShowPredictModal(true)}
+            style={{ background: 'rgba(236, 72, 153, 0.12)', color: '#fbcfe8', border: '1px solid rgba(236, 72, 153, 0.3)', fontSize: 12.5, justifyContent: 'flex-start' }}
+            title="Score unlabelled test CSV with the winning model"
+          >
+            <PlayCircle size={14} color="#ec4899" /> Test Predictions
+          </button>
           <a
             href={api.downloadPreprocessedDataUrl(experiment_id)}
             target="_blank" rel="noreferrer"
@@ -118,6 +186,17 @@ export default function ResultsView({ experiment, onSelectAnotherExperiment }) {
           >
             <Download size={14} color="#a855f7" /> Preprocessed CSV
           </a>
+          {resObj.evaluation_available && (
+            <a
+              href={api.downloadEvaluationUrl(experiment_id)}
+              target="_blank" rel="noreferrer"
+              className="btn"
+              style={{ background: 'rgba(255,255,255,0.06)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', fontSize: 12.5 }}
+              title="Download the stored holdout predictions, metrics, split audit, and verification results"
+            >
+              <ClipboardCheck size={14} color="#fbbf24" /> Evaluation JSON
+            </a>
+          )}
         </div>
       </div>
 
@@ -237,6 +316,43 @@ export default function ResultsView({ experiment, onSelectAnotherExperiment }) {
           <FeatureImportanceChart data={featImportance?.feature_importances} taskType={task_type} />
         </div>
       </div>
+
+      {/* Pro Upgrade Modal */}
+      <ProUpgradeModal
+        isOpen={showProModal}
+        onClose={() => setShowProModal(false)}
+        featureTitle={proModalInfo.title}
+        featureDesc={proModalInfo.desc}
+      />
+
+      {/* Python Code Export Modal */}
+      <CodeExportModal
+        isOpen={showCodeModal}
+        onClose={() => setShowCodeModal(false)}
+        codeData={codeData}
+        onUpgrade={() => {
+          setShowCodeModal(false);
+          triggerProUpgrade(
+            'Python Code Export is a Pro Feature',
+            'Get the complete scikit-learn reproduction script with the ₹99 Top-Up Pack or Student Plan.'
+          );
+        }}
+      />
+
+      {/* Test Predictions Modal */}
+      <TestPredictModal
+        isOpen={showPredictModal}
+        onClose={() => setShowPredictModal(false)}
+        experimentId={experiment_id}
+        bestModel={best_model}
+        onUpgrade={() => {
+          setShowPredictModal(false);
+          triggerProUpgrade(
+            'Model Inference on New CSVs is a Pro Feature',
+            'Score unlabelled test datasets with the ₹99 Top-Up Pack or Student Plan.'
+          );
+        }}
+      />
     </div>
   );
 }

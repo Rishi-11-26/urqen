@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Upload, Database, CheckCircle, AlertTriangle,
-  ArrowRight, Trash2, Target, RefreshCw, ShieldCheck,
+  ArrowRight, Trash2, Target, RefreshCw, ShieldCheck, Sparkles,
 } from 'lucide-react';
 import HealthScoreBadge from '../components/HealthScoreBadge';
 import QualityFindingCard from '../components/QualityFindingCard';
@@ -23,6 +23,7 @@ export default function DatasetLabView({
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState(null);
   const [selectedTaskType, setSelectedTaskType] = useState(null);
+  const [loadingSample, setLoadingSample] = useState(false);
   const fileInputRef = useRef();
 
   useEffect(() => {
@@ -69,6 +70,20 @@ export default function DatasetLabView({
     }
   };
 
+  const handleLoadSample = async (sampleName) => {
+    setLoadingSample(true);
+    setUploadError(null);
+    try {
+      const res = await api.loadSampleDataset(sampleName);
+      onDatasetUploaded(res);
+      onSelectDataset(res);
+    } catch (err) {
+      setUploadError(err.message);
+    } finally {
+      setLoadingSample(false);
+    }
+  };
+
   const handleFileInput  = (e) => uploadFile(e.target.files?.[0]);
   const handleDrop       = (e) => { e.preventDefault(); setDragOver(false); uploadFile(e.dataTransfer.files?.[0]); };
   const handleDragOver   = (e) => { e.preventDefault(); setDragOver(true); };
@@ -111,7 +126,7 @@ export default function DatasetLabView({
           <div className="card-header">
             <div>
               <div className="card-title">Upload Dataset</div>
-              <div className="card-subtitle">CSV · TSV · XLSX · XLS · Up to 50,000 rows (50 MB)</div>
+              <div className="card-subtitle">CSV · TSV · XLSX · XLS · Up to 50,000 rows · 200 cols (50 MB)</div>
             </div>
           </div>
 
@@ -154,6 +169,39 @@ export default function DatasetLabView({
                 {uploadError}
               </div>
             )}
+
+            {/* Quick-Start Benchmark Samples */}
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-light)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <Sparkles size={13} color="#f59e0b" />
+                  Instant Benchmark Samples (Zero Upload):
+                </span>
+                {loadingSample && <span style={{ fontSize: 11, color: 'var(--primary)' }}>Loading sample...</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={uploading || loadingSample}
+                  onClick={() => handleLoadSample('iris')}
+                  style={{ fontSize: 12, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+                  title="Load 150-row Iris multiclass flower dataset"
+                >
+                  🌸 Iris Dataset <span style={{ fontSize: 10, opacity: 0.7 }}>(150 rows · 4 feats)</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={uploading || loadingSample}
+                  onClick={() => handleLoadSample('titanic')}
+                  style={{ fontSize: 12, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+                  title="Load 100-row Titanic survival classification dataset"
+                >
+                  🚢 Titanic Dataset <span style={{ fontSize: 10, opacity: 0.7 }}>(100 rows · 9 feats)</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

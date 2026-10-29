@@ -579,10 +579,38 @@ def get_current_system_notice(user_id: str) -> Optional[dict]:
     return notice
 
 
+def is_user_paid(user_id: str, is_admin: bool = False) -> bool:
+    """Returns True if user has an active paid plan, upgraded quota, or bonus runs."""
+    if is_admin:
+        return True
+    try:
+        if get_user_quota_limit(user_id) > DEFAULT_USER_QUOTA_BYTES:
+            return True
+        trials = _read_json(USER_TRIALS_FILE)
+        u = trials.get(user_id, {})
+        if int(u.get("guided_bonus", 0)) > 0 or int(u.get("expert_bonus", 0)) > 0:
+            return True
+        if u.get("is_paid") or u.get("plan") in ("topup", "student", "researcher", "institutional"):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def get_user_trial_status(user_id: str, is_admin: bool = False) -> dict:
-    """Returns trial quota status for a user."""
+    """Returns trial quota status for a user with automatic monthly refresh."""
+    current_month = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")
     trials = _read_json(USER_TRIALS_FILE)
     u = trials.get(user_id, {})
+
+    # Monthly refresh check: reset base used counts if month rolled over
+    if u and u.get("billing_month") != current_month:
+        u["guided_used"] = 0
+        u["expert_used"] = 0
+        u["billing_month"] = current_month
+        trials[user_id] = u
+        _write_json(USER_TRIALS_FILE, trials)
+
     guided_used = int(u.get("guided_used", 0))
     expert_used = int(u.get("expert_used", 0))
     guided_bonus = int(u.get("guided_bonus", 0))
@@ -594,6 +622,8 @@ def get_user_trial_status(user_id: str, is_admin: bool = False) -> dict:
     return {
         "user_id": user_id,
         "is_admin": is_admin,
+        "is_paid": is_user_paid(user_id, is_admin),
+        "billing_month": u.get("billing_month", current_month),
         "guided_used": guided_used,
         "guided_limit": guided_limit if not is_admin else 999999,
         "guided_remaining": max(0, guided_limit - guided_used) if not is_admin else 999999,
@@ -605,12 +635,14 @@ def get_user_trial_status(user_id: str, is_admin: bool = False) -> dict:
 
 def check_and_increment_trial_quota(user_id: str, mode: str, is_admin: bool = False) -> dict:
     """
-    Enforces trial limits: 2 free Guided runs, 1 free Expert run.
+    Enforces trial limits: 2 free Guided runs, 1 free Expert run per month.
+    Refreshes automatically at the start of each calendar month.
     Developer/Admin accounts have unlimited runs.
     """
     if is_admin:
         return {"status": "unlimited", "is_admin": True}
 
+    current_month = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")
     is_guided = (mode or "guided").lower() == "guided"
     trials = _read_json(USER_TRIALS_FILE)
     if user_id not in trials:
@@ -619,9 +651,17 @@ def check_and_increment_trial_quota(user_id: str, mode: str, is_admin: bool = Fa
             "expert_used": 0,
             "guided_bonus": 0,
             "expert_bonus": 0,
+            "billing_month": current_month,
         }
 
     u = trials[user_id]
+
+    # Monthly refresh check: reset base counts if month has changed
+    if u.get("billing_month") != current_month:
+        u["guided_used"] = 0
+        u["expert_used"] = 0
+        u["billing_month"] = current_month
+
     guided_used = int(u.get("guided_used", 0))
     expert_used = int(u.get("expert_used", 0))
     guided_bonus = int(u.get("guided_bonus", 0))
@@ -631,16 +671,18 @@ def check_and_increment_trial_quota(user_id: str, mode: str, is_admin: bool = Fa
         allowed = FREE_GUIDED_LIMIT + guided_bonus
         if guided_used >= allowed:
             raise RuntimeError(
-                f"You have used all {allowed} free Guided mode experiments. "
-                "Contact Developer at urqen0@gmail.com to request additional runs or upgrade to Pro."
+                f"Free monthly quota reached ({allowed} Guided runs/month). "
+                "Need extra runs for a deadline submission? Get the ₹99 Top-Up Pack (10 extra runs) or Student Plan (₹249/mo). "
+                "Contact urqen0@gmail.com for instant UPI activation."
             )
         u["guided_used"] = guided_used + 1
     else:
         allowed = FREE_EXPERT_LIMIT + expert_bonus
         if expert_used >= allowed:
             raise RuntimeError(
-                f"You have used your free Expert mode experiment ({allowed} allowed). "
-                "Contact Developer at urqen0@gmail.com to request additional runs or upgrade to Pro."
+                f"Free monthly quota reached ({allowed} Expert run/month). "
+                "Need extra runs for a deadline submission? Get the ₹99 Top-Up Pack (10 extra runs) or Student Plan (₹249/mo). "
+                "Contact urqen0@gmail.com for instant UPI activation."
             )
         u["expert_used"] = expert_used + 1
 
@@ -660,7 +702,7 @@ def grant_user_trial_runs(
     guided_runs: int = 0,
     expert_runs: int = 0,
     user_email: Optional[str] = None,
-    adjusted_by: str = "Developer: Adepu Rishi",
+    adjusted_by: str = "URQEN System",
 ) -> dict:
     """Grants bonus trial runs to a user, logs to audit history, and alerts user on login."""
     trials = _read_json(USER_TRIALS_FILE)
@@ -729,7 +771,7 @@ def grant_user_trial_runs(
 def reset_user_trials(
     user_id: str,
     user_email: Optional[str] = None,
-    adjusted_by: str = "Developer: Adepu Rishi",
+    adjusted_by: str = "URQEN System",
 ) -> dict:
     """Resets a user's used trial runs back to 0, logs to audit history, and alerts user on login."""
     trials = _read_json(USER_TRIALS_FILE)
@@ -744,6 +786,7 @@ def reset_user_trials(
     u = trials[user_id]
     u["guided_used"] = 0
     u["expert_used"] = 0
+    u["billing_month"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")
     u["reset_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     trials[user_id] = u
     _write_json(USER_TRIALS_FILE, trials)
@@ -1032,7 +1075,13 @@ def purge_expired_artifacts(max_age_days: int = 14) -> dict:
         except Exception:
             continue
 
-        if created_dt < cutoff:
+        u_id = exp.get("user_id")
+        # Paid subscribers receive extended retention (90 days vs 14 days on free tier)
+        effective_cutoff = cutoff
+        if u_id and is_user_paid(u_id):
+            effective_cutoff = now - datetime.timedelta(days=90)
+
+        if created_dt < effective_cutoff:
             # Check for model bundle
             paths = exp.get("artifact_paths", {})
             bundle_path_str = paths.get("model_bundle")

@@ -94,6 +94,14 @@ export const api = {
     return handleResponse(res);
   },
 
+  loadSampleDataset: async (sampleName) => {
+    const res = await fetch(`${BASE_URL}/datasets/sample/${encodeURIComponent(sampleName)}`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    return handleResponse(res);
+  },
+
   getDatasetProfile: async (datasetId, sampleRows = 25) => {
     const res = await fetch(`${BASE_URL}/datasets/${datasetId}/profile?sample_rows=${sampleRows}`, {
       headers: authHeaders(),
@@ -187,6 +195,30 @@ export const api = {
     const t = typeof _getToken === 'function' ? _getToken() : null;
     const tokenParam = t ? `?token=${encodeURIComponent(t)}` : '';
     return `${BASE_URL}/artifacts/${experimentId}/preprocessed-dataset${tokenParam}`;
+  },
+
+  getCodeExport: async (experimentId) => {
+    const res = await fetch(`${BASE_URL}/artifacts/${experimentId}/code-export`, {
+      headers: authHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  downloadCodeUrl: (experimentId) => {
+    const t = typeof _getToken === 'function' ? _getToken() : null;
+    const tokenParam = t ? `?token=${encodeURIComponent(t)}` : '';
+    return `${BASE_URL}/artifacts/${experimentId}/code-export/download${tokenParam}`;
+  },
+
+  predictWithCsv: async (experimentId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${BASE_URL}/artifacts/${experimentId}/predict`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
+    });
+    return handleResponse(res);
   },
 
   runInference: async (experimentId, rows) => {

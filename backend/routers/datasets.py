@@ -161,6 +161,15 @@ async def upload_dataset(
                     "the maximum supported size is 50,000 rows. Please downsample your dataset or contact urqen0@gmail.com for higher capacity."
                 ),
             )
+        if len(df.columns) > 200 and not settings.is_admin(user.email):
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Dataset contains {len(df.columns):,} columns. To prevent memory exhaustion during modeling on the standard tier, "
+                    "the maximum supported limit is 200 columns. Please reduce feature dimensionality or contact urqen0@gmail.com for higher capacity."
+                ),
+            )
         val_report = validate_dataset(df)
         if not val_report["is_valid"]:
             file_path.unlink(missing_ok=True)
@@ -201,6 +210,57 @@ async def upload_dataset(
         size_bytes=len(content),
         created_at=record["created_at"],
         message="Dataset uploaded and validated successfully.",
+    )
+
+
+@router.post("/sample/{sample_name}", response_model=DatasetUploadResponse)
+async def load_sample(sample_name: str, user: UserIdentity = Depends(get_current_user)):
+    """Loads a built-in benchmark dataset (iris or titanic) for zero-upload instant testing."""
+    from previa.ingestion.sample_datasets import get_sample_dataset
+    try:
+        df = get_sample_dataset(sample_name)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    dataset_id = str(uuid.uuid4())
+    filename = f"sample_{sample_name.lower().strip()}.csv"
+    save_filename = f"{dataset_id}_{filename}"
+    file_path = settings.DATA_DIR / save_filename
+
+    try:
+        df.to_csv(file_path, index=False)
+        size_bytes = file_path.stat().st_size
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to save sample: {e}")
+
+    record = save_dataset_record(
+        dataset_id=dataset_id,
+        user_id=user.user_id,
+        name=filename,
+        file_path=file_path,
+        row_count=len(df),
+        column_count=len(df.columns),
+        file_type="csv",
+    )
+
+    sync_dataset(user.user_id, record)
+    stats_after = get_storage_stats(user.user_id)
+    update_storage_quota(
+        user.user_id,
+        dataset_bytes=stats_after.get("dataset_bytes", 0),
+        artifact_bytes=stats_after.get("artifact_bytes", 0),
+        quota_limit_bytes=stats_after.get("quota_limit_bytes", 52428800),
+    )
+
+    return DatasetUploadResponse(
+        dataset_id=dataset_id,
+        name=filename,
+        row_count=len(df),
+        column_count=len(df.columns),
+        file_type="csv",
+        size_bytes=size_bytes,
+        created_at=record["created_at"],
+        message=f"Sample dataset '{sample_name.capitalize()}' loaded successfully.",
     )
 
 
